@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="CloudManagerWinUIApp.Dialogs.AuthDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    DefaultButton="Primary"
+    PrimaryButtonClick="AuthDialog_PrimaryButtonClick"
+    mc:Ignorable="d">
+
+    <StackPanel Spacing="12" Width="360">
+        <InfoBar
+            x:Name="ErrorBar"
+            IsClosable="False"
+            IsOpen="False"
+            Severity="Error" />
+        <TextBox
+            x:Name="LoginBox"
+            Header="{x:Bind L.Login}"
+            PlaceholderText="{x:Bind L.LoginPlaceholder}"
+            TextChanged="OnFieldChanged" />
+        <PasswordBox
+            x:Name="PasswordBox"
+            Header="{x:Bind L.Password}"
+            PasswordChanged="OnFieldChanged"
+            PlaceholderText="{x:Bind L.PasswordPlaceholder}" />
+        <PasswordBox
+            x:Name="ConfirmBox"
+            Header="{x:Bind L.RepeatPassword}"
+            PlaceholderText="{x:Bind L.RepeatPasswordPlaceholder}"
+            Visibility="Collapsed" />
+        <HyperlinkButton
+            x:Name="SwitchModeLink"
+            Padding="0"
+            HorizontalAlignment="Left"
+            Click="SwitchMode_Click"
+            Content="{x:Bind L.NoAccountRegister}" />
+    </StackPanel>
+</ContentDialog>

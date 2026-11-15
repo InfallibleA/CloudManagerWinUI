@@ -1,0 +1,211 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build (x64 Debug)",
+      "detail": "cloudmanagerwinuiapp: dotnet build под x64 (Debug) -> bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/CloudManagerWinUIApp.exe",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Debug",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64",
+        "--nologo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true,
+        "close": true
+      }
+    },
+    {
+      "label": "build (x64 Release)",
+      "detail": "cloudmanagerwinuiapp: dotnet build под x64 (Release)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Release",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64",
+        "--nologo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "publish (portable .exe, один файл)",
+      "detail": "dotnet publish -> publish/portable/CloudManagerWinUIApp.exe. Unpackaged, self-contained, single-file, без .pdb. Ничего доустанавливать не нужно.",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Release",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64",
+        "-p:WindowsPackageType=None",
+        "-p:PublishSingleFile=true",
+        "-p:SelfContained=true",
+        "-p:WindowsAppSDKSelfContained=true",
+        "-p:IncludeAllContentForSelfExtract=true",
+        "-p:DebugType=None",
+        "-p:DebugSymbols=false",
+        "-o",
+        "${workspaceFolder}/publish/portable",
+        "--nologo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "publish (portable .exe, без trimming)",
+      "detail": "То же, что и «publish (portable .exe, один файл)». Флаг оставлен для наглядности: PublishTrimmed=false уже задан в проекте, потому что обрезанная сборка ломает маршалинг WinUI.",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Release",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64",
+        "-p:WindowsPackageType=None",
+        "-p:PublishSingleFile=true",
+        "-p:PublishTrimmed=false",
+        "-p:SelfContained=true",
+        "-p:WindowsAppSDKSelfContained=true",
+        "-p:IncludeAllContentForSelfExtract=true",
+        "-p:DebugType=None",
+        "-p:DebugSymbols=false",
+        "-o",
+        "${workspaceFolder}/publish/portable",
+        "--nologo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "run (portable .exe)",
+      "detail": "Запуск готового publish/portable/CloudManagerWinUIApp.exe (с предварительной публикацией)",
+      "type": "shell",
+      "command": "${workspaceFolder}/publish/portable/CloudManagerWinUIApp.exe",
+      "options": {
+        "cwd": "${workspaceFolder}/publish/portable"
+      },
+      "dependsOn": "publish (portable .exe, один файл)",
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "run (x64 Debug)",
+      "detail": "cloudmanagerwinuiapp: запуск собранного CloudManagerWinUIApp.exe",
+      "type": "shell",
+      "command": "${workspaceFolder}/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/CloudManagerWinUIApp.exe",
+      "options": {
+        "cwd": "${workspaceFolder}/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64"
+      },
+      "dependsOn": "build (x64 Debug)",
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "dotnet run (x64, с идентификатором пакета)",
+      "detail": "cloudmanagerwinuiapp: dotnet run — регистрирует debug-идентификатор пакета через WinApp и запускает приложение по AUMID",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Debug",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "clean (x64)",
+      "detail": "cloudmanagerwinuiapp: очистка артефактов сборки x64",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "clean",
+        "${workspaceFolder}/CloudManagerWinUIApp.csproj",
+        "-c",
+        "Debug",
+        "-p:Platform=x64",
+        "-p:RuntimeIdentifier=win-x64",
+        "--nologo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    }
+  ]
+}

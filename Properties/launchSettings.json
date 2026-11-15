@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "CloudManagerWinUIApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "CloudManagerWinUIApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

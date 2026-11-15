@@ -1,0 +1,771 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="CloudManagerWinUIApp.Pages.AdminPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:CloudManagerWinUIApp.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="24,16,24,24" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="{x:Bind L.AdminTab}" />
+            <ProgressRing
+                x:Name="BusyRing"
+                Width="20"
+                Height="20"
+                IsActive="False"
+                IsIndeterminate="True"
+                VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <!-- Пользователь не авторизован или не админ -->
+            <StackPanel
+                x:Name="ForbiddenPanel"
+                MaxWidth="680"
+                HorizontalAlignment="Left"
+                Spacing="16"
+                VerticalAlignment="Top">
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="{x:Bind L.AdminForbiddenMessage}"
+                    Severity="Informational"
+                    Title="{x:Bind L.AdminForbiddenTitle}" />
+                <Button
+                    x:Name="SignInButton"
+                    AutomationProperties.Name="{x:Bind L.SignInToAccount}"
+                    Click="SignIn_Click"
+                    Style="{StaticResource AccentButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE77B;" />
+                        <TextBlock Text="{x:Bind L.SignIn}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!-- Админ-панель -->
+            <Grid x:Name="AdminRoot" Visibility="Collapsed">
+                <TabView
+                    x:Name="AdminTabs"
+                    IsAddTabButtonVisible="False"
+                    SelectionChanged="AdminTabs_SelectionChanged">
+                    <TabViewItem
+                        Header="{x:Bind L.UsersTab}"
+                        IsClosable="False"
+                        Tag="users">
+                        <Grid>
+                            <!-- Список пользователей -->
+                            <Grid x:Name="UsersListPanel" Padding="0,12,0,0" RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBox
+                                        x:Name="UsersSearchBox"
+                                        AutomationProperties.Name="{x:Bind L.UsersSearchPlaceholder}"
+                                        KeyDown="UsersSearchBox_KeyDown"
+                                        MaxLength="255"
+                                        PlaceholderText="{x:Bind L.UsersSearchPlaceholder}" />
+
+                                    <Button
+                                        Grid.Column="1"
+                                        AutomationProperties.Name="{x:Bind L.Search}"
+                                        Click="Search_Click"
+                                        Content="{x:Bind L.Search}" />
+
+                                    <ComboBox
+                                        x:Name="RoleFilter"
+                                        Grid.Column="2"
+                                        MinWidth="160"
+                                        AutomationProperties.Name="{x:Bind L.ColumnRole}"
+                                        SelectionChanged="RoleFilter_SelectionChanged" />
+
+                                    <Button
+                                        Grid.Column="3"
+                                        AutomationProperties.Name="{x:Bind L.Refresh}"
+                                        Click="Refresh_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                            <TextBlock Text="{x:Bind L.Refresh}" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <!--
+                                    Заголовок таблицы: колонки совпадают с шаблоном строки
+                                    (значок, логин, роль, статус, дата, «открыть», блокировка).
+                                -->
+                                <Grid
+                                    Grid.Row="1"
+                                    Padding="12,0"
+                                    ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="32" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnName}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="2"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnRole}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="3"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnStatus}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="4"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnCreated}"
+                                        TextTrimming="CharacterEllipsis" />
+                                </Grid>
+
+                                <Grid Grid.Row="2">
+                                    <ListView
+                                        x:Name="UsersList"
+                                        AutomationProperties.Name="{x:Bind L.UsersTab}"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="UsersList_ItemClick"
+                                        SelectionMode="None">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="local:AdminUserRow">
+                                                <Grid
+                                                    Padding="12,8"
+                                                    AutomationProperties.Name="{x:Bind AutomationName}"
+                                                    ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="32" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="170" />
+                                                        <ColumnDefinition Width="32" />
+                                                        <ColumnDefinition Width="32" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <FontIcon
+                                                        FontSize="18"
+                                                        Glyph="{x:Bind Glyph}"
+                                                        VerticalAlignment="Center" />
+
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        Text="{x:Bind Login}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+
+                                                    <TextBlock
+                                                        Grid.Column="2"
+                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                        Text="{x:Bind RoleText}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+
+                                                    <!-- Статус: замок и предупреждающий цвет только у заблокированного. -->
+                                                    <StackPanel
+                                                        Grid.Column="3"
+                                                        Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        VerticalAlignment="Center">
+                                                        <FontIcon
+                                                            FontSize="12"
+                                                            Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                            Glyph="&#xE72E;"
+                                                            VerticalAlignment="Center"
+                                                            Visibility="{x:Bind LockVisibility}" />
+                                                        <TextBlock
+                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                            Text="{x:Bind StatusText}"
+                                                            TextTrimming="CharacterEllipsis"
+                                                            VerticalAlignment="Center" />
+                                                    </StackPanel>
+
+                                                    <TextBlock
+                                                        Grid.Column="4"
+                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                        Text="{x:Bind CreatedText}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+
+                                                    <Button
+                                                        Grid.Column="5"
+                                                        Width="32"
+                                                        MinWidth="0"
+                                                        Padding="0"
+                                                        AutomationProperties.Name="{x:Bind AutomationName}"
+                                                        Click="OpenUser_Click"
+                                                        ToolTipService.ToolTip="{x:Bind AutomationName}"
+                                                        VerticalAlignment="Center">
+                                                        <FontIcon FontSize="12" Glyph="&#xE76C;" />
+                                                    </Button>
+
+                                                    <!-- Блокировка доступна с клавиатуры: обычная кнопка в строке. -->
+                                                    <Button
+                                                        Grid.Column="6"
+                                                        Width="32"
+                                                        MinWidth="0"
+                                                        Padding="0"
+                                                        AutomationProperties.Name="{x:Bind BlockAutomation}"
+                                                        Click="ToggleBlock_Click"
+                                                        ToolTipService.ToolTip="{x:Bind BlockActionText}"
+                                                        VerticalAlignment="Center">
+                                                        <FontIcon FontSize="12" Glyph="{x:Bind BlockGlyph}" />
+                                                    </Button>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+
+                                    <TextBlock
+                                        x:Name="UsersEmptyText"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind L.UsersEmpty}"
+                                        Visibility="Collapsed" />
+                                </Grid>
+
+                                <Grid Grid.Row="3" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Button
+                                        x:Name="MoreUsersButton"
+                                        Click="MoreUsers_Click"
+                                        Content="{x:Bind L.ShowMore}"
+                                        Visibility="Collapsed" />
+
+                                    <TextBlock
+                                        x:Name="UsersCounter"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+                            </Grid>
+
+                            <!-- Содержимое выбранного пользователя -->
+                            <Grid
+                                x:Name="ExplorerPanel"
+                                Padding="0,12,0,0"
+                                RowSpacing="8"
+                                Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Button
+                                        AutomationProperties.Name="{x:Bind L.BackToUsers}"
+                                        Click="BackToUsers_Click"
+                                        ToolTipService.ToolTip="{x:Bind L.BackToUsers}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon FontSize="14" Glyph="&#xE72B;" />
+                                            <TextBlock Text="{x:Bind L.BackToUsers}" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <TextBlock
+                                        x:Name="ExplorerTitle"
+                                        Grid.Column="1"
+                                        Style="{StaticResource SubtitleTextBlockStyle}"
+                                        TextTrimming="CharacterEllipsis"
+                                        VerticalAlignment="Center" />
+                                </Grid>
+
+                                <BreadcrumbBar
+                                    x:Name="ExplorerBreadcrumb"
+                                    Grid.Row="1"
+                                    ItemClicked="ExplorerBreadcrumb_ItemClicked" />
+
+                                <!-- Заголовок таблицы: ширины совпадают с шаблоном строки -->
+                                <Grid
+                                    Grid.Row="2"
+                                    Padding="12,0"
+                                    ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="170" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnName}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="2"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnSize}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Grid.Column="3"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind L.ColumnCreated}"
+                                        TextTrimming="CharacterEllipsis" />
+                                </Grid>
+
+                                <Grid Grid.Row="3">
+                                    <ListView
+                                        x:Name="ExplorerList"
+                                        IsItemClickEnabled="True"
+                                        ItemClick="ExplorerList_ItemClick"
+                                        SelectionMode="None">
+                                        <ListView.ItemContainerStyle>
+                                            <Style TargetType="ListViewItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="MinHeight" Value="0" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                            </Style>
+                                        </ListView.ItemContainerStyle>
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="local:AdminExplorerRow">
+                                                <Grid
+                                                    Padding="12,8"
+                                                    AutomationProperties.Name="{x:Bind AutomationName}"
+                                                    ColumnSpacing="8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="32" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="170" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <FontIcon
+                                                        FontSize="18"
+                                                        Foreground="{x:Bind IconBrush}"
+                                                        Glyph="{x:Bind Glyph}"
+                                                        VerticalAlignment="Center" />
+
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        Text="{x:Bind Name}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+
+                                                    <TextBlock
+                                                        Grid.Column="2"
+                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                        Text="{x:Bind SizeText}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+
+                                                    <TextBlock
+                                                        Grid.Column="3"
+                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                        Text="{x:Bind CreatedText}"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        VerticalAlignment="Center" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+
+                                    <TextBlock
+                                        x:Name="ExplorerEmptyText"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind L.NothingHere}"
+                                        Visibility="Collapsed" />
+
+                                    <TextBlock
+                                        x:Name="ExplorerNoRootText"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        TextAlignment="Center"
+                                        TextWrapping="Wrap"
+                                        Visibility="Collapsed" />
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </TabViewItem>
+
+                    <TabViewItem
+                        Header="{x:Bind L.FilesTab}"
+                        IsClosable="False"
+                        Tag="files">
+                        <Grid
+                            x:Name="AllFilesPanel"
+                            Padding="0,12,0,0"
+                            RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Фильтры: владелец (creator_id), тип (type), имя (name) -->
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="200" />
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <ComboBox
+                                    x:Name="FileUserFilter"
+                                    AutomationProperties.Name="{x:Bind L.UserFilter}"
+                                    SelectionChanged="FileUserFilter_SelectionChanged" />
+
+                                <ComboBox
+                                    x:Name="FileTypeFilter"
+                                    Grid.Column="1"
+                                    AutomationProperties.Name="{x:Bind L.FileTypeFilter}"
+                                    SelectionChanged="FileTypeFilter_SelectionChanged" />
+
+                                <TextBox
+                                    x:Name="FilesNameBox"
+                                    Grid.Column="2"
+                                    AutomationProperties.Name="{x:Bind L.FileNameSearchPlaceholder}"
+                                    KeyDown="FilesNameBox_KeyDown"
+                                    MaxLength="255"
+                                    PlaceholderText="{x:Bind L.FileNameSearchPlaceholder}" />
+
+                                <Button
+                                    Grid.Column="3"
+                                    AutomationProperties.Name="{x:Bind L.Refresh}"
+                                    Click="FilesRefresh_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                        <TextBlock Text="{x:Bind L.Refresh}" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- Подпись секции: «Все файлы» или «Файлы пользователя <логин>» -->
+                            <TextBlock
+                                x:Name="FilesScopeTitle"
+                                Grid.Row="1"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="{x:Bind L.AllFiles}"
+                                TextTrimming="CharacterEllipsis" />
+
+                            <!--
+                                Заголовок таблицы: ширины совпадают с шаблоном строки
+                                (значок / имя / пользователь / тип / размер / дата):
+                                32 / * / 150 / 110 / 110 / 170.
+                            -->
+                            <Grid
+                                Grid.Row="2"
+                                Padding="12,0"
+                                ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="170" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    Grid.Column="1"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind L.ColumnName}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="2"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind L.UserFilter}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind L.ColumnType}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="4"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind L.ColumnSize}"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    Grid.Column="5"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind L.ColumnCreated}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </Grid>
+
+                            <Grid Grid.Row="3">
+                                <ListView
+                                    x:Name="FilesList"
+                                    AutomationProperties.Name="{x:Bind L.FilesTab}"
+                                    SelectionMode="None">
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="MinHeight" Value="0" />
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="local:AdminFileRow">
+                                            <Grid
+                                                Padding="12,8"
+                                                AutomationProperties.Name="{x:Bind AutomationName}"
+                                                ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="32" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="150" />
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="170" />
+                                                </Grid.ColumnDefinitions>
+
+                                                <FontIcon
+                                                    FontSize="18"
+                                                    Foreground="{x:Bind IconBrush}"
+                                                    Glyph="{x:Bind Glyph}"
+                                                    VerticalAlignment="Center" />
+
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    Text="{x:Bind Name}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    VerticalAlignment="Center" />
+
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Text="{x:Bind OwnerText}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    VerticalAlignment="Center" />
+
+                                                <TextBlock
+                                                    Grid.Column="3"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Text="{x:Bind TypeText}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    VerticalAlignment="Center" />
+
+                                                <TextBlock
+                                                    Grid.Column="4"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Text="{x:Bind SizeText}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    VerticalAlignment="Center" />
+
+                                                <TextBlock
+                                                    Grid.Column="5"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    Text="{x:Bind CreatedText}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    VerticalAlignment="Center" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+
+                                <TextBlock
+                                    x:Name="FilesEmptyText"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind L.FilesEmpty}"
+                                    Visibility="Collapsed" />
+                            </Grid>
+
+                            <Grid Grid.Row="4" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <Button
+                                    x:Name="MoreFilesButton"
+                                    Click="MoreFiles_Click"
+                                    Content="{x:Bind L.ShowMore}"
+                                    Visibility="Collapsed" />
+
+                                <TextBlock
+                                    x:Name="FilesCounter"
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Grid>
+                    </TabViewItem>
+
+                    <TabViewItem
+                        Header="{x:Bind L.NewsCreateTab}"
+                        IsClosable="False"
+                        Tag="news">
+                        <ScrollViewer
+                            Padding="0,12,0,0"
+                            HorizontalScrollMode="Disabled"
+                            VerticalScrollBarVisibility="Auto"
+                            VerticalScrollMode="Auto">
+                            <StackPanel
+                                MaxWidth="720"
+                                HorizontalAlignment="Left"
+                                Spacing="12">
+                                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="{x:Bind L.NewsCreateTitle}" />
+
+                                <TextBox
+                                    x:Name="NewsNameBox"
+                                    Header="{x:Bind L.NewsName}"
+                                    MaxLength="255"
+                                    PlaceholderText="{x:Bind L.NewsNamePlaceholder}"
+                                    TextChanged="NewsNameBox_TextChanged" />
+
+                                <TextBox
+                                    x:Name="NewsDescriptionBox"
+                                    AcceptsReturn="True"
+                                    Header="{x:Bind L.NewsDescription}"
+                                    Height="120"
+                                    PlaceholderText="{x:Bind L.NewsDescriptionPlaceholder}"
+                                    TextWrapping="Wrap" />
+
+                                <Border
+                                    Padding="12"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind L.NewsMedia}" />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button
+                                                x:Name="UploadMediaButton"
+                                                AutomationProperties.Name="{x:Bind L.NewsMediaUpload}"
+                                                Click="UploadMedia_Click">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon FontSize="14" Glyph="&#xE896;" />
+                                                    <TextBlock Text="{x:Bind L.NewsMediaUpload}" />
+                                                </StackPanel>
+                                            </Button>
+
+                                            <Button
+                                                x:Name="ChooseMediaButton"
+                                                AutomationProperties.Name="{x:Bind L.NewsMediaChoose}"
+                                                Click="ChooseMedia_Click"
+                                                Content="{x:Bind L.NewsMediaChoose}" />
+                                        </StackPanel>
+
+                                        <ProgressBar x:Name="UploadProgress" Visibility="Collapsed" />
+
+                                        <ComboBox
+                                            x:Name="MediaFilesCombo"
+                                            HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="{x:Bind L.NewsMediaChoose}"
+                                            PlaceholderText="{x:Bind L.NewsMediaChoose}"
+                                            SelectionChanged="MediaFilesCombo_SelectionChanged"
+                                            Visibility="Collapsed">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="local:AdminMediaOption">
+                                                    <TextBlock Text="{x:Bind Text}" TextTrimming="CharacterEllipsis" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+
+                                        <Image
+                                            x:Name="MediaPreview"
+                                            MaxHeight="180"
+                                            HorizontalAlignment="Left"
+                                            Stretch="Uniform"
+                                            Visibility="Collapsed" />
+
+                                        <TextBlock
+                                            x:Name="MediaNoneText"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind L.NewsMediaNone}" />
+
+                                        <TextBlock
+                                            x:Name="MediaIdText"
+                                            IsTextSelectionEnabled="True"
+                                            Visibility="Collapsed" />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button
+                                                x:Name="CopyMediaIdButton"
+                                                AutomationProperties.Name="{x:Bind L.NewsMediaCopyId}"
+                                                Click="CopyMediaId_Click"
+                                                Content="{x:Bind L.NewsMediaCopyId}"
+                                                IsEnabled="False" />
+                                            <Button
+                                                x:Name="ClearMediaButton"
+                                                AutomationProperties.Name="{x:Bind L.NewsMediaClear}"
+                                                Click="ClearMedia_Click"
+                                                Content="{x:Bind L.NewsMediaClear}"
+                                                IsEnabled="False" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <InfoBar
+                                    x:Name="NewsInfoBar"
+                                    IsClosable="True"
+                                    IsOpen="False"
+                                    Severity="Success" />
+
+                                <Button
+                                    x:Name="CreateNewsButton"
+                                    Click="CreateNews_Click"
+                                    Content="{x:Bind L.NewsCreate}"
+                                    IsEnabled="False"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabViewItem>
+                </TabView>
+            </Grid>
+
+            <InfoBar
+                x:Name="ErrorBar"
+                VerticalAlignment="Bottom"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Error" />
+        </Grid>
+    </Grid>
+</Page>
