@@ -19,6 +19,8 @@ public sealed class Strings(bool russian)
 
     public string Cancel => T("Отмена", "Cancel");
 
+    public string Back => T("Назад", "Back");
+
     public string Save => T("Сохранить", "Save");
 
     public string Delete => T("Удалить", "Delete");
@@ -84,11 +86,16 @@ public sealed class Strings(bool russian)
 
     public string AddEntry => T("Добавить", "Add");
 
-    public string AddEntryAutomation => T("Добавить папку или файл", "Add a folder or file");
+    public string AddEntryAutomation => T("Добавить папку, файл или видео", "Add a folder, file or video");
 
     public string Folder => T("Папка", "Folder");
 
     public string File => T("Файл", "File");
+
+    public string Video => T("Видео", "Video");
+
+    /// <summary>Имя видео для экранного диктора в содержимом папки.</summary>
+    public string VideoAutomation(string name) => T($"Видео «{name}»", $"Video «{name}»");
 
     public string NoRootFolder => T("Коренной папки нет", "No root folder");
 
@@ -139,6 +146,20 @@ public sealed class Strings(bool russian)
 
     public string FilePickFailed(string message)
         => T($"Не удалось выбрать файл: {message}", $"Couldn't pick a file: {message}");
+
+    public string VideoUploaded(string name)
+        => T($"Видео «{name}» загружено", $"Video «{name}» uploaded");
+
+    public string VideoUploadFailed(string message)
+        => T($"Не удалось загрузить видео: {message}", $"Couldn't upload the video: {message}");
+
+    public string VideoPickFailed(string message)
+        => T($"Не удалось выбрать видео: {message}", $"Couldn't pick a video: {message}");
+
+    public string VideoPlaybackFailed(string reason)
+        => string.IsNullOrWhiteSpace(reason)
+            ? T("Не удалось воспроизвести видео", "Couldn't play the video")
+            : T($"Не удалось воспроизвести видео: {reason}", $"Couldn't play the video: {reason}");
 
     // --- Диалог входа/регистрации ----------------------------------------
 

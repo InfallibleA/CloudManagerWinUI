@@ -166,40 +166,12 @@ public sealed class CloudManagerApiClient
         return SendJsonAsync<PagedResponse<FileDto>>(() => CreateRequest(HttpMethod.Get, query.ToString()), true, ct);
     }
 
-    public async Task<FileDto> UploadFileAsync(
+    public Task<FileDto> UploadFileAsync(
         string name,
         string filePath,
         IProgress<double>? progress = null,
         CancellationToken ct = default)
-    {
-        Func<HttpRequestMessage> factory = () =>
-        {
-            var content = new MultipartFormDataContent();
-            content.Add(new StringContent(name, Encoding.UTF8), "name");
-
-            var stream = File.OpenRead(filePath);
-            var streamContent = progress is null
-                ? new StreamContent(stream)
-                : new StreamContent(new ProgressStream(stream, stream.Length, progress));
-            streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(filePath));
-            content.Add(streamContent, "file", Path.GetFileName(filePath));
-
-            var request = CreateRequest(HttpMethod.Post, "api/files");
-            request.Content = content;
-            return request;
-        };
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromHours(2));
-
-        using var response = await SendWithRetryAsync(factory, allowRefresh: true, cts.Token).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw CreateApiError(response.StatusCode, body);
-
-        return ApiJson.Deserialize<FileDto>(body)
-               ?? throw CreateApiError(response.StatusCode, body);
-    }
+        => UploadAsync<FileDto>("api/files", name, filePath, progress, ct);
 
     public async Task DownloadFileAsync(
         Guid fileId,
@@ -292,6 +264,78 @@ public sealed class CloudManagerApiClient
             () => JsonRequest(HttpMethod.Patch, $"api/files/{fileId}", new FileUpdateRequest(name)),
             true,
             ct);
+
+    // --- Видео ------------------------------------------------------------
+
+    /// <summary>
+    /// Справочник разрешённых типов видео (<c>GET api/videos/types</c>) — для фильтра
+    /// в диалоге выбора файла. Авторизация не требуется.
+    /// </summary>
+    public Task<VideoTypeDto[]> GetVideoTypesAsync(CancellationToken ct = default)
+        => SendJsonAsync<VideoTypeDto[]>(() => CreateRequest(HttpMethod.Get, "api/videos/types"), false, ct);
+
+    /// <summary>Загрузка видео (<c>POST api/videos</c>, только admin).</summary>
+    public Task<VideoDto> UploadVideoAsync(
+        string name,
+        string filePath,
+        Guid? folderId = null,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default)
+        => UploadAsync<VideoDto>("api/videos", name, filePath, progress, ct, folderId);
+
+    /// <summary>
+    /// Presigned-ссылка на воспроизведение (<c>GET api/videos/{id}/playback</c>, без авторизации).
+    /// Ссылка ведёт в S3, поэтому поток отдаётся без проксирования через API.
+    /// </summary>
+    public Task<VideoPlaybackDto> GetVideoPlaybackAsync(Guid videoId, CancellationToken ct = default)
+        => SendJsonAsync<VideoPlaybackDto>(
+            () => CreateRequest(HttpMethod.Get, $"api/videos/{videoId}/playback"),
+            false,
+            ct);
+
+    /// <summary>
+    /// Загрузка медиафайла (<c>multipart/form-data</c>: <c>name</c> + <c>file</c>, у видео ещё
+    /// <c>folder_id</c>). Файлы и видео отличаются только путём и типом ответа.
+    /// </summary>
+    private async Task<T> UploadAsync<T>(
+        string path,
+        string name,
+        string filePath,
+        IProgress<double>? progress,
+        CancellationToken ct,
+        Guid? folderId = null)
+    {
+        Func<HttpRequestMessage> factory = () =>
+        {
+            var content = new MultipartFormDataContent();
+            content.Add(new StringContent(name, Encoding.UTF8), "name");
+
+            if (folderId is not null)
+                content.Add(new StringContent(folderId.Value.ToString(), Encoding.UTF8), "folder_id");
+
+            var stream = File.OpenRead(filePath);
+            var streamContent = progress is null
+                ? new StreamContent(stream)
+                : new StreamContent(new ProgressStream(stream, stream.Length, progress));
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(filePath));
+            content.Add(MultipartFilePart.Wrap(streamContent, Path.GetFileName(filePath)));
+
+            var request = CreateRequest(HttpMethod.Post, path);
+            request.Content = content;
+            return request;
+        };
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromHours(2));
+
+        using var response = await SendWithRetryAsync(factory, allowRefresh: true, cts.Token).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw CreateApiError(response.StatusCode, body);
+
+        return ApiJson.Deserialize<T>(body)
+               ?? throw CreateApiError(response.StatusCode, body);
+    }
 
     // --- Низкий уровень ---------------------------------------------------
 
@@ -415,6 +459,11 @@ public sealed class CloudManagerApiClient
         ".gif" => "image/gif",
         ".webp" => "image/webp",
         ".avif" => "image/avif",
+        ".mp4" or ".m4v" => "video/mp4",
+        ".webm" => "video/webm",
+        ".mov" => "video/quicktime",
+        ".mkv" => "video/x-matroska",
+        ".avi" => "video/x-msvideo",
         ".doc" => "application/msword",
         ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".xls" => "application/vnd.ms-excel",

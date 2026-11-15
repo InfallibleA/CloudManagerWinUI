@@ -6,18 +6,20 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 
 namespace CloudManagerWinUIApp.Pages;
 
-/// <summary>Элемент сетки файлового менеджера: папка или файл.</summary>
+/// <summary>Элемент сетки файлового менеджера: папка, файл или видео.</summary>
 public sealed class ExplorerItem
 {
-    private ExplorerItem(Guid id, string name, bool isFolder)
+    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo)
     {
         Id = id;
         Name = name;
         IsFolder = isFolder;
+        IsVideo = isVideo;
     }
 
     public Guid Id { get; }
@@ -26,17 +28,27 @@ public sealed class ExplorerItem
 
     public bool IsFolder { get; }
 
-    public string Glyph => ExplorerIcons.GlyphFor(IsFolder);
+    /// <summary>Видео открывается кликом в плеере.</summary>
+    public bool IsVideo { get; }
 
-    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder);
+    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo);
+
+    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder, IsVideo);
 
     public string AutomationName => IsFolder
         ? Loc.Current.FolderAutomation(Name)
-        : Loc.Current.FileAutomation(Name);
+        : IsVideo
+            ? Loc.Current.VideoAutomation(Name)
+            : Loc.Current.FileAutomation(Name);
 
-    public static ExplorerItem FromFolder(FolderShortDto dto) => new(dto.Id, dto.Name, isFolder: true);
+    public static ExplorerItem FromFolder(FolderShortDto dto)
+        => new(dto.Id, dto.Name, isFolder: true, isVideo: false);
 
-    public static ExplorerItem FromFile(FileShortDto dto) => new(dto.Id, dto.Name, isFolder: false);
+    public static ExplorerItem FromFile(FileShortDto dto)
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: false);
+
+    public static ExplorerItem FromVideo(VideoShortDto dto)
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: true);
 }
 
 /// <summary>Сегмент пути в «хлебных крошках».</summary>
@@ -49,10 +61,13 @@ public sealed class FolderCrumb(string name, Guid folderId)
     public override string ToString() => Name;
 }
 
+/// <summary>Возврат из плеера: путь, который страница файлов должна показать снова.</summary>
+public sealed record FolderPathRequest(IReadOnlyList<FolderCrumb> Path);
+
 /// <summary>
-/// Файловый менеджер пользователя: сетка папок и файлов текущей папки.
+/// Файловый менеджер пользователя: сетка папок, файлов и видео текущей папки.
 /// Показываются только папки текущего пользователя (фильтр <c>creator_id</c>)
-/// и файлы внутри его папок.
+/// и файлы/видео внутри его папок; видео открывается кликом в плеере.
 /// </summary>
 public sealed partial class FilesPage : Page, IFrameBackHandler
 {
@@ -60,6 +75,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
     private readonly List<FolderCrumb> _path = [];
     private IReadOnlyList<FileTypeDto> _types = [];
+    private IReadOnlyList<VideoTypeDto> _videoTypes = [];
 
     public FilesPage()
     {
@@ -95,8 +111,19 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
         await LoadTypesAsync();
 
-        if (AppServices.Auth.IsAuthenticated)
-            await RunAsync(LoadRootAsync);
+        if (!AppServices.Auth.IsAuthenticated)
+            return;
+
+        // Возврат из плеера: показываем ту же папку, из которой открывали видео.
+        if (e.Parameter is FolderPathRequest restore && restore.Path.Count > 0)
+        {
+            _path.Clear();
+            _path.AddRange(restore.Path);
+            await RunAsync(() => OpenFolderAsync(_path[^1].FolderId));
+            return;
+        }
+
+        await RunAsync(LoadRootAsync);
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -229,6 +256,8 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             ItemsGrid.Items.Add(ExplorerItem.FromFolder(child));
         foreach (var file in folder.Files ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromFile(file));
+        foreach (var video in folder.Videos ?? [])
+            ItemsGrid.Items.Add(ExplorerItem.FromVideo(video));
 
         FolderBreadcrumb.ItemsSource = _path.ToList();
         EmptyText.Visibility = ItemsGrid.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -264,11 +293,22 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
     private async void ItemsGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is not ExplorerItem { IsFolder: true } folder)
+        if (e.ClickedItem is not ExplorerItem item)
             return;
 
-        _path.Add(new FolderCrumb(folder.Name, folder.Id));
-        await OpenFolderAsync(folder.Id);
+        if (item.IsVideo)
+        {
+            Frame.Navigate(
+                typeof(VideoPlayerPage),
+                new VideoPlaybackRequest(item.Id, item.Name, _path.ToList()));
+            return;
+        }
+
+        if (!item.IsFolder)
+            return;
+
+        _path.Add(new FolderCrumb(item.Name, item.Id));
+        await OpenFolderAsync(item.Id);
     }
 
     private async void FolderBreadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
@@ -293,6 +333,10 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
         var item = ResolveItem(element);
         if (item is null)
+            return;
+
+        // У видео пока нет действий: оно открывается кликом в плеере.
+        if (item.IsVideo)
             return;
 
         var position = new Windows.Foundation.Point(0, 0);
@@ -413,12 +457,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         {
             var path = await FileSaver.DownloadAsync(item.Id, item.Name);
             if (path is not null)
-            {
-                ErrorBar.Severity = InfoBarSeverity.Success;
-                ErrorBar.Title = Loc.Current.FileSaved;
-                ErrorBar.Message = path;
-                ErrorBar.IsOpen = true;
-            }
+                ShowSuccess(Loc.Current.FileSaved, path);
         });
     }
 
@@ -515,25 +554,9 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
         try
         {
-            var picker = new FileOpenPicker
-            {
-                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-                ViewMode = PickerViewMode.List,
-            };
-
-            if (_types.Count > 0)
-            {
-                foreach (var type in _types)
-                    picker.FileTypeFilter.Add("." + type.Value);
-            }
-            else
-            {
-                picker.FileTypeFilter.Add("*");
-            }
-
-            FileSaver.InitializeWithWindow(picker);
-
-            var file = await picker.PickSingleFileAsync();
+            var file = await PickUploadFileAsync(
+                PickerLocationId.DocumentsLibrary,
+                _types.Select(type => type.Value));
             if (file is null)
                 return;
 
@@ -545,11 +568,75 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
     }
 
+    private async void AddVideo_Click(object sender, RoutedEventArgs e)
+    {
+        var folderId = CurrentFolderId;
+        if (folderId is null)
+            return;
+
+        try
+        {
+            var file = await PickUploadFileAsync(PickerLocationId.VideosLibrary, await LoadVideoTypesAsync());
+            if (file is null)
+                return;
+
+            await UploadVideoAsync(folderId.Value, file.Name, file.Path);
+        }
+        catch (Exception ex)
+        {
+            ShowError(Loc.Current.VideoPickFailed(ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Диалог выбора загружаемого файла. <paramref name="extensions"/> — расширения без точки;
+    /// пустой список означает «любые файлы».
+    /// </summary>
+    private static async Task<StorageFile?> PickUploadFileAsync(
+        PickerLocationId location,
+        IEnumerable<string> extensions)
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = location,
+            ViewMode = PickerViewMode.List,
+        };
+
+        var filtered = false;
+        foreach (var extension in extensions)
+        {
+            picker.FileTypeFilter.Add("." + extension.TrimStart('.'));
+            filtered = true;
+        }
+
+        if (!filtered)
+            picker.FileTypeFilter.Add("*");
+
+        FileSaver.InitializeWithWindow(picker);
+
+        return await picker.PickSingleFileAsync();
+    }
+
+    private async Task<IReadOnlyList<string>> LoadVideoTypesAsync()
+    {
+        if (_videoTypes.Count == 0)
+        {
+            try
+            {
+                _videoTypes = await AppServices.Api.GetVideoTypesAsync() ?? [];
+            }
+            catch (Exception)
+            {
+                _videoTypes = [];
+            }
+        }
+
+        return _videoTypes.Select(type => type.Value).ToList();
+    }
+
     private async Task UploadIntoFolderAsync(Guid folderId, string name, string path)
     {
-        AddButton.IsEnabled = false;
-        UploadProgress.Visibility = Visibility.Visible;
-        UploadProgress.Value = 0;
+        SetUploading(true);
         ErrorBar.IsOpen = false;
 
         try
@@ -575,9 +662,42 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
         finally
         {
-            AddButton.IsEnabled = true;
-            UploadProgress.Visibility = Visibility.Collapsed;
+            SetUploading(false);
         }
+    }
+
+    private async Task UploadVideoAsync(Guid folderId, string name, string path)
+    {
+        SetUploading(true);
+        ErrorBar.IsOpen = false;
+
+        try
+        {
+            var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
+            var video = await AppServices.Api.UploadVideoAsync(name, path, folderId, progress);
+            ShowSuccess(Loc.Current.VideoUploaded(video.Name));
+            await ReloadCurrentAsync();
+        }
+        catch (ApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError(Loc.Current.VideoUploadFailed(ex.Message));
+        }
+        finally
+        {
+            SetUploading(false);
+        }
+    }
+
+    private void SetUploading(bool uploading)
+    {
+        AddButton.IsEnabled = !uploading;
+        UploadProgress.Visibility = uploading ? Visibility.Visible : Visibility.Collapsed;
+        if (uploading)
+            UploadProgress.Value = 0;
     }
 
     // --- Диалоги и вспомогательное ---------------------------------------
@@ -654,6 +774,14 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         ErrorBar.Severity = InfoBarSeverity.Error;
         ErrorBar.Title = Loc.Current.Error;
         ErrorBar.Message = message;
+        ErrorBar.IsOpen = true;
+    }
+
+    private void ShowSuccess(string title, string? message = null)
+    {
+        ErrorBar.Severity = InfoBarSeverity.Success;
+        ErrorBar.Title = title;
+        ErrorBar.Message = message ?? string.Empty;
         ErrorBar.IsOpen = true;
     }
 }

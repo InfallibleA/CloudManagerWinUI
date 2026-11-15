@@ -26,8 +26,9 @@ CloudManagerWinUI/
 ├── MainWindow.xaml(.cs)            # Главное окно и навигация
 ├── IFrameBackHandler.cs            # Интерфейс обработки навигации «Назад»
 ├── appsettings.json                # Конфигурация Api:BaseUrl
-├── Pages/                          # Страницы UI: FilesPage, NewsPage, NewsDetailPage,
-│                                   # AdminPage, SettingsPage, AboutPage, ExplorerIcons.cs
+├── Pages/                          # Страницы UI: FilesPage, VideoPlayerPage, NewsPage,
+│                                   # NewsDetailPage, AdminPage, SettingsPage, AboutPage,
+│                                   # ExplorerIcons.cs
 ├── Dialogs/                        # Диалоги: AuthDialog
 ├── Services/                       # Клиент API и сервисы: CloudManagerApiClient, AuthService,
 │                                   # AppServices, ApiSettings, ApiModels, ApiJsonContext,

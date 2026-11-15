@@ -50,6 +50,34 @@ public sealed record FileTypeDto(
     [property: JsonPropertyName("content_type")] string ContentType,
     [property: JsonPropertyName("is_image")] bool IsImage);
 
+// --- Видео ---------------------------------------------------------------
+
+public sealed record VideoDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("object_key")] string? ObjectKey,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt);
+
+public sealed record VideoTypeDto(
+    [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("content_type")] string ContentType);
+
+/// <summary>Видео в содержимом папки: без <c>object_key</c>, видео адресуется по id.</summary>
+public sealed record VideoShortDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt = null);
+
+public sealed record VideoPlaybackDto(
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("content_type")] string ContentType,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt,
+    [property: JsonPropertyName("expires_in")] int ExpiresIn);
+
 // --- Новости -------------------------------------------------------------
 
 public sealed record NewsDto(
@@ -78,6 +106,7 @@ public sealed record FolderDto(
     [property: JsonPropertyName("parent_id")] Guid? ParentId,
     [property: JsonPropertyName("is_root")] bool IsRoot = false,
     [property: JsonPropertyName("files")] IReadOnlyList<FileShortDto>? Files = null,
+    [property: JsonPropertyName("videos")] IReadOnlyList<VideoShortDto>? Videos = null,
     [property: JsonPropertyName("children")] IReadOnlyList<FolderShortDto>? Children = null,
     [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt = null);
 

@@ -209,6 +209,7 @@ public sealed partial class MainWindow : Window
             : pageType switch
             {
                 _ when pageType == typeof(FilesPage) => FindMenuItem("files"),
+                _ when pageType == typeof(VideoPlayerPage) => FindMenuItem("files"),
                 _ when pageType == typeof(AdminPage) => FindMenuItem("admin"),
                 _ when pageType == typeof(AboutPage) => FindMenuItem("about"),
                 _ when pageType == typeof(NewsPage) || pageType == typeof(NewsDetailPage) => FindMenuItem("news"),
