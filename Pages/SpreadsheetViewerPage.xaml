@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="CloudManagerWinUIApp.Pages.SpreadsheetViewerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:CloudManagerWinUIApp.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="24,16,24,24" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button
+                x:Name="BackButton"
+                AutomationProperties.Name="{x:Bind L.Back}"
+                Click="Back_Click"
+                ToolTipService.ToolTip="{x:Bind L.Back}">
+                <FontIcon FontSize="16" Glyph="&#xE72B;" />
+            </Button>
+
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="12"
+                VerticalAlignment="Center">
+                <TextBlock
+                    x:Name="TitleText"
+                    Style="{StaticResource TitleTextBlockStyle}"
+                    TextTrimming="CharacterEllipsis" />
+                <ProgressRing
+                    x:Name="BusyRing"
+                    Width="20"
+                    Height="20"
+                    IsActive="False"
+                    VerticalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel
+                Grid.Column="2"
+                Orientation="Horizontal"
+                Spacing="8"
+                VerticalAlignment="Center">
+                <Button
+                    x:Name="CopyButton"
+                    AutomationProperties.Name="{x:Bind L.CopySheet}"
+                    Click="Copy_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="{x:Bind L.CopySheet}">
+                    <FontIcon FontSize="16" Glyph="&#xE8C8;" />
+                </Button>
+
+                <Button
+                    x:Name="DownloadButton"
+                    AutomationProperties.Name="{x:Bind L.Download}"
+                    Click="Download_Click"
+                    ToolTipService.ToolTip="{x:Bind L.Download}">
+                    <FontIcon FontSize="16" Glyph="&#xE896;" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <InfoBar
+            x:Name="StatusBar"
+            Grid.Row="1"
+            IsClosable="True"
+            IsOpen="False" />
+
+        <ScrollViewer
+            x:Name="SheetTabsScroller"
+            Grid.Row="2"
+            HorizontalScrollBarVisibility="Auto"
+            HorizontalScrollMode="Auto"
+            VerticalScrollBarVisibility="Disabled"
+            VerticalScrollMode="Disabled"
+            Visibility="Collapsed">
+            <SelectorBar
+                x:Name="SheetSelector"
+                SelectionChanged="SheetSelector_SelectionChanged" />
+        </ScrollViewer>
+
+        <Border
+            Grid.Row="3"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid>
+                <ScrollViewer
+                    HorizontalScrollBarVisibility="Auto"
+                    HorizontalScrollMode="Enabled"
+                    VerticalScrollBarVisibility="Disabled"
+                    VerticalScrollMode="Disabled">
+                    <Grid
+                        x:Name="TableGrid"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Stretch">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid
+                            x:Name="HeaderRowGrid"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1" />
+
+                        <ListView
+                            x:Name="RowsList"
+                            Grid.Row="1"
+                            VerticalAlignment="Stretch"
+                            ContainerContentChanging="RowsList_ContainerContentChanging"
+                            IsItemClickEnabled="False"
+                            SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid />
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="MinHeight" Value="32" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                        </ListView>
+                    </Grid>
+                </ScrollViewer>
+
+                <TextBlock
+                    x:Name="EmptyText"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind L.SpreadsheetEmpty}"
+                    Visibility="Collapsed" />
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

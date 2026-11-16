@@ -175,6 +175,27 @@ public sealed class Strings(bool russian)
         $"Документ превышает {maxMegabytes} МБ и не может быть открыт во встроенном просмотре.",
         $"The document exceeds {maxMegabytes} MB and cannot be opened in the built-in viewer.");
 
+    public string CopySheet => T("Копировать таблицу", "Copy sheet");
+
+    public string SheetCopied => T("Таблица скопирована в буфер обмена", "Sheet copied to clipboard");
+
+    public string SpreadsheetEmpty => T("Лист не содержит данных.", "This sheet is empty.");
+
+    public string SpreadsheetLoadFailed(string message)
+        => T($"Не удалось открыть таблицу: {message}", $"Couldn't open the spreadsheet: {message}");
+
+    public string SpreadsheetUnsupportedFormat(string name) => T(
+        $"Неподдерживаемый или повреждённый формат таблицы «{name}».",
+        $"Unsupported or corrupted spreadsheet format for «{name}».");
+
+    public string SpreadsheetPasswordProtected => T(
+        "Таблица защищена паролем и не может быть открыта.",
+        "This spreadsheet is password-protected and cannot be opened.");
+
+    public string SpreadsheetTruncated(int maxRows) => T(
+        $"Показаны первые {maxRows} строк листа. Скачайте файл для полного просмотра.",
+        $"Showing the first {maxRows} rows of the sheet. Download the file to view it in full.");
+
     public string FileSaved => T("Файл сохранён", "File saved");
 
     public string VideoSaved => T("Видео сохранено", "Video saved");

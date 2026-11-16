@@ -14,13 +14,14 @@ namespace CloudManagerWinUIApp.Pages;
 /// <summary>Элемент сетки файлового менеджера: папка, файл или видео.</summary>
 public sealed class ExplorerItem
 {
-    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo, bool isText)
+    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo, bool isText, bool isSpreadsheet)
     {
         Id = id;
         Name = name;
         IsFolder = isFolder;
         IsVideo = isVideo;
         IsText = isText;
+        IsSpreadsheet = isSpreadsheet;
     }
 
     public Guid Id { get; }
@@ -35,9 +36,12 @@ public sealed class ExplorerItem
     /// <summary>Текстовый файл открывается кликом во встроенном просмотре.</summary>
     public bool IsText { get; }
 
-    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo, IsText);
+    /// <summary>Таблица (.xlsx/.xlsm/.xlsb/.xltx/.xltm/.xls) открывается во встроенном просмотре таблиц.</summary>
+    public bool IsSpreadsheet { get; }
 
-    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder, IsVideo);
+    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo, IsText, IsSpreadsheet);
+
+    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder, IsVideo, IsSpreadsheet);
 
     public string AutomationName => IsFolder
         ? Loc.Current.FolderAutomation(Name)
@@ -46,13 +50,13 @@ public sealed class ExplorerItem
             : Loc.Current.FileAutomation(Name);
 
     public static ExplorerItem FromFolder(FolderShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: true, isVideo: false, isText: false);
+        => new(dto.Id, dto.Name, isFolder: true, isVideo: false, isText: false, isSpreadsheet: false);
 
-    public static ExplorerItem FromFile(FileShortDto dto, bool isText = false)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: false, isText: isText);
+    public static ExplorerItem FromFile(FileShortDto dto, bool isText = false, bool isSpreadsheet = false)
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: false, isText: isText, isSpreadsheet: isSpreadsheet);
 
     public static ExplorerItem FromVideo(VideoShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: true, isText: false);
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: true, isText: false, isSpreadsheet: false);
 }
 
 /// <summary>Сегмент пути в «хлебных крошках».</summary>
@@ -259,7 +263,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         foreach (var child in folder.Children ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromFolder(child));
         foreach (var file in folder.Files ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromFile(file, IsTextFile(file)));
+            ItemsGrid.Items.Add(ExplorerItem.FromFile(file, IsTextFile(file), IsSpreadsheetFile(file)));
         foreach (var video in folder.Videos ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromVideo(video));
 
@@ -291,6 +295,13 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         {
             _types = [];
         }
+    }
+
+    private static bool IsSpreadsheetFile(FileShortDto dto)
+    {
+        var typeExt = dto.Type.TrimStart('.');
+        return SpreadsheetReader.IsSpreadsheetExtension(dto.Name)
+               || SpreadsheetReader.IsSpreadsheetExtension("f." + typeExt);
     }
 
     private bool IsTextFile(FileShortDto dto)
@@ -346,6 +357,12 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             return;
         }
 
+        if (item.IsSpreadsheet)
+        {
+            OpenSpreadsheetViewer(item);
+            return;
+        }
+
         if (item.IsText)
         {
             OpenTextViewer(item);
@@ -363,6 +380,11 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         => Frame.Navigate(
             typeof(TextViewerPage),
             new TextViewerRequest(item.Id, item.Name, _path.ToList()));
+
+    private void OpenSpreadsheetViewer(ExplorerItem item)
+        => Frame.Navigate(
+            typeof(SpreadsheetViewerPage),
+            new SpreadsheetViewerRequest(item.Id, item.Name, _path.ToList()));
 
     private async void FolderBreadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
     {
@@ -429,11 +451,14 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
         else
         {
-            if (item.IsText)
+            if (item.IsSpreadsheet || item.IsText)
             {
                 flyout.Items.Add(CreateMenuItem(strings.Open, () =>
                 {
-                    OpenTextViewer(item);
+                    if (item.IsSpreadsheet)
+                        OpenSpreadsheetViewer(item);
+                    else
+                        OpenTextViewer(item);
                     return Task.CompletedTask;
                 }));
             }

@@ -582,6 +582,9 @@ public sealed class CloudManagerApiClient
         ".xls" => "application/vnd.ms-excel",
         ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".xlsm" => "application/vnd.ms-excel.sheet.macroEnabled.12",
+        ".xlsb" => "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+        ".xltx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+        ".xltm" => "application/vnd.ms-excel.template.macroEnabled.12",
         _ => "application/octet-stream",
     };
 }
