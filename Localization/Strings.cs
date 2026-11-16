@@ -120,6 +120,8 @@ public sealed class Strings(bool russian)
 
     public string RenameFolder => T("Переименовать папку", "Rename folder");
 
+    public string RenameVideo => T("Переименовать видео", "Rename video");
+
     public string NewName => T("Новое имя", "New name");
 
     public string DeleteFileTitle => T("Удалить файл?", "Delete file?");
@@ -133,7 +135,49 @@ public sealed class Strings(bool russian)
         $"Папка «{name}» будет удалена вместе со всеми вложенными папками и файлами.",
         $"The folder «{name}» will be deleted along with all nested folders and files.");
 
+    public string DeleteVideoTitle => T("Удалить видео?", "Delete video?");
+
+    public string DeleteVideoMessage(string name)
+        => T($"Видео «{name}» будет удалено без возможности восстановления.", $"The video «{name}» will be deleted permanently.");
+
+    public string Open => T("Открыть", "Open");
+
+    public string Copy => T("Копировать", "Copy");
+
+    public string Copied => T("Текст скопирован", "Text copied");
+
+    public string WordWrap => T("Перенос строк", "Word wrap");
+
+    public string TextLoadFailed(string message)
+        => T($"Не удалось открыть текстовый файл: {message}", $"Couldn't open the text file: {message}");
+
+    public string TextFileTruncated => T(
+        "Файл слишком большой — показаны первые 2 МБ. Скачайте файл для полного просмотра.",
+        "File is too large — showing the first 2 MB. Download the file to view it in full.");
+
+    public string DocumentUnsupportedFormat(string name) => T(
+        $"Неподдерживаемый или повреждённый формат документа «{name}».",
+        $"Unsupported or corrupted document format for «{name}».");
+
+    public string DocxMissingBody => T(
+        "В файле .docx отсутствует word/document.xml.",
+        "The .docx archive does not contain word/document.xml.");
+
+    public string DocMissingWordStream => T(
+        "В файле .doc отсутствует поток WordDocument.",
+        "The .doc file does not contain a WordDocument stream.");
+
+    public string DocPasswordProtected => T(
+        "Файл .doc защищён паролем и не может быть открыт.",
+        "This .doc file is password-protected and cannot be opened.");
+
+    public string DocumentTooLarge(int maxMegabytes) => T(
+        $"Документ превышает {maxMegabytes} МБ и не может быть открыт во встроенном просмотре.",
+        $"The document exceeds {maxMegabytes} MB and cannot be opened in the built-in viewer.");
+
     public string FileSaved => T("Файл сохранён", "File saved");
+
+    public string VideoSaved => T("Видео сохранено", "Video saved");
 
     public string FilesOpenFailed(string message)
         => T($"Не удалось открыть файлы: {message}", $"Couldn't open the files: {message}");

@@ -27,6 +27,7 @@ namespace CloudManagerWinUIApp.Services;
 [JsonSerializable(typeof(FolderDto))]
 [JsonSerializable(typeof(CreateFolderRequest))]
 [JsonSerializable(typeof(FileUpdateRequest))]
+[JsonSerializable(typeof(VideoUpdateRequest))]
 [JsonSerializable(typeof(FolderUpdateRequest))]
 [JsonSerializable(typeof(PagedResponse<NewsDto>))]
 [JsonSerializable(typeof(PagedResponse<FileDto>))]

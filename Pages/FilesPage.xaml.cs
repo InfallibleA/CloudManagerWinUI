@@ -14,12 +14,13 @@ namespace CloudManagerWinUIApp.Pages;
 /// <summary>Элемент сетки файлового менеджера: папка, файл или видео.</summary>
 public sealed class ExplorerItem
 {
-    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo)
+    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo, bool isText)
     {
         Id = id;
         Name = name;
         IsFolder = isFolder;
         IsVideo = isVideo;
+        IsText = isText;
     }
 
     public Guid Id { get; }
@@ -31,7 +32,10 @@ public sealed class ExplorerItem
     /// <summary>Видео открывается кликом в плеере.</summary>
     public bool IsVideo { get; }
 
-    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo);
+    /// <summary>Текстовый файл открывается кликом во встроенном просмотре.</summary>
+    public bool IsText { get; }
+
+    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo, IsText);
 
     public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder, IsVideo);
 
@@ -42,13 +46,13 @@ public sealed class ExplorerItem
             : Loc.Current.FileAutomation(Name);
 
     public static ExplorerItem FromFolder(FolderShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: true, isVideo: false);
+        => new(dto.Id, dto.Name, isFolder: true, isVideo: false, isText: false);
 
-    public static ExplorerItem FromFile(FileShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: false);
+    public static ExplorerItem FromFile(FileShortDto dto, bool isText = false)
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: false, isText: isText);
 
     public static ExplorerItem FromVideo(VideoShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: true);
+        => new(dto.Id, dto.Name, isFolder: false, isVideo: true, isText: false);
 }
 
 /// <summary>Сегмент пути в «хлебных крошках».</summary>
@@ -255,7 +259,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         foreach (var child in folder.Children ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromFolder(child));
         foreach (var file in folder.Files ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromFile(file));
+            ItemsGrid.Items.Add(ExplorerItem.FromFile(file, IsTextFile(file)));
         foreach (var video in folder.Videos ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromVideo(video));
 
@@ -289,6 +293,44 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
     }
 
+    private bool IsTextFile(FileShortDto dto)
+    {
+        var typeExt = dto.Type.TrimStart('.');
+        var nameExt = Path.GetExtension(dto.Name).TrimStart('.');
+
+        if (_types.Any(t =>
+                (string.Equals(t.Value.TrimStart('.'), typeExt, StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(t.Value.TrimStart('.'), nameExt, StringComparison.OrdinalIgnoreCase))
+                && IsTextContentType(t.ContentType)))
+        {
+            return true;
+        }
+
+        return IsKnownTextExtension(typeExt) || IsKnownTextExtension(nameExt);
+    }
+
+    private static bool IsTextContentType(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+            return false;
+
+        return contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("application/xml", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("application/javascript", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("application/msword", StringComparison.OrdinalIgnoreCase)
+            || contentType.Equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsKnownTextExtension(string ext) => ext.ToLowerInvariant() switch
+    {
+        "txt" or "md" or "markdown" or "json" or "xml" or "csv" or "tsv" or "log"
+            or "yaml" or "yml" or "ini" or "cfg" or "conf" or "cs" or "py" or "js"
+            or "ts" or "html" or "htm" or "css" or "sql" or "sh" or "ps1" or "bat"
+            or "doc" or "docx" or "rtf" => true,
+        _ => false,
+    };
+
     // --- Навигация -------------------------------------------------------
 
     private async void ItemsGrid_ItemClick(object sender, ItemClickEventArgs e)
@@ -304,12 +346,23 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             return;
         }
 
+        if (item.IsText)
+        {
+            OpenTextViewer(item);
+            return;
+        }
+
         if (!item.IsFolder)
             return;
 
         _path.Add(new FolderCrumb(item.Name, item.Id));
         await OpenFolderAsync(item.Id);
     }
+
+    private void OpenTextViewer(ExplorerItem item)
+        => Frame.Navigate(
+            typeof(TextViewerPage),
+            new TextViewerRequest(item.Id, item.Name, _path.ToList()));
 
     private async void FolderBreadcrumb_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
     {
@@ -333,10 +386,6 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
         var item = ResolveItem(element);
         if (item is null)
-            return;
-
-        // У видео пока нет действий: оно открывается кликом в плеере.
-        if (item.IsVideo)
             return;
 
         var position = new Windows.Foundation.Point(0, 0);
@@ -372,8 +421,23 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFolderAsync(item)));
             flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFolderAsync(item)));
         }
+        else if (item.IsVideo)
+        {
+            flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteVideoAsync(item)));
+            flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameVideoAsync(item)));
+            flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadVideoAsync(item)));
+        }
         else
         {
+            if (item.IsText)
+            {
+                flyout.Items.Add(CreateMenuItem(strings.Open, () =>
+                {
+                    OpenTextViewer(item);
+                    return Task.CompletedTask;
+                }));
+            }
+
             flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFileAsync(item)));
             flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFileAsync(item)));
             flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadFileAsync(item)));
@@ -389,64 +453,64 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         return item;
     }
 
-    private async Task RenameFileAsync(ExplorerItem item)
+    private Task RenameFileAsync(ExplorerItem item)
+        => RenameItemAsync(Loc.Current.RenameFile, item.Name, name => AppServices.Api.UpdateFileAsync(item.Id, name));
+
+    private Task RenameFolderAsync(ExplorerItem item)
+        => RenameItemAsync(Loc.Current.RenameFolder, item.Name, name => AppServices.Api.UpdateFolderAsync(item.Id, name: name));
+
+    private Task RenameVideoAsync(ExplorerItem item)
+        => RenameItemAsync(Loc.Current.RenameVideo, item.Name, name => AppServices.Api.UpdateVideoAsync(item.Id, name));
+
+    private async Task RenameItemAsync(string title, string currentName, Func<string, Task> renameApi)
     {
-        var name = await PromptNameAsync(Loc.Current.RenameFile, item.Name);
-        if (name is null || name == item.Name)
+        var name = await PromptNameAsync(title, currentName);
+        if (name is null || name == currentName)
             return;
 
         await RunAsync(async () =>
         {
-            await AppServices.Api.UpdateFileAsync(item.Id, name);
+            await renameApi(name);
             await ReloadCurrentAsync();
         });
     }
 
-    private async Task RenameFolderAsync(ExplorerItem item)
-    {
-        var name = await PromptNameAsync(Loc.Current.RenameFolder, item.Name);
-        if (name is null || name == item.Name)
-            return;
-
-        await RunAsync(async () =>
-        {
-            await AppServices.Api.UpdateFolderAsync(item.Id, name: name);
-            await ReloadCurrentAsync();
-        });
-    }
-
-    private async Task DeleteFileAsync(ExplorerItem item)
+    private Task DeleteFileAsync(ExplorerItem item)
     {
         var strings = Loc.Current;
-        var confirmed = await ConfirmAsync(
+        return DeleteItemAsync(
             strings.DeleteFileTitle,
             strings.DeleteFileMessage(item.Name),
-            strings.Delete);
-
-        if (!confirmed)
-            return;
-
-        await RunAsync(async () =>
-        {
-            await AppServices.Api.DeleteFileAsync(item.Id);
-            await ReloadCurrentAsync();
-        });
+            () => AppServices.Api.DeleteFileAsync(item.Id));
     }
 
-    private async Task DeleteFolderAsync(ExplorerItem item)
+    private Task DeleteFolderAsync(ExplorerItem item)
     {
         var strings = Loc.Current;
-        var confirmed = await ConfirmAsync(
+        return DeleteItemAsync(
             strings.DeleteFolderTitle,
             strings.DeleteFolderMessage(item.Name),
-            strings.Delete);
+            () => AppServices.Api.DeleteFolderAsync(item.Id));
+    }
 
+    private Task DeleteVideoAsync(ExplorerItem item)
+    {
+        var strings = Loc.Current;
+        return DeleteItemAsync(
+            strings.DeleteVideoTitle,
+            strings.DeleteVideoMessage(item.Name),
+            () => AppServices.Api.DeleteVideoAsync(item.Id));
+    }
+
+    private async Task DeleteItemAsync(string title, string message, Func<Task> deleteApi)
+    {
+        var confirmed = await ConfirmAsync(title, message, Loc.Current.Delete);
         if (!confirmed)
             return;
 
         await RunAsync(async () =>
         {
-            await AppServices.Api.DeleteFolderAsync(item.Id);
+            await deleteApi();
             await ReloadCurrentAsync();
         });
     }
@@ -458,6 +522,16 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             var path = await FileSaver.DownloadAsync(item.Id, item.Name);
             if (path is not null)
                 ShowSuccess(Loc.Current.FileSaved, path);
+        });
+    }
+
+    private async Task DownloadVideoAsync(ExplorerItem item)
+    {
+        await RunAsync(async () =>
+        {
+            var path = await FileSaver.DownloadVideoAsync(item.Id, item.Name);
+            if (path is not null)
+                ShowSuccess(Loc.Current.VideoSaved, path);
         });
     }
 
@@ -554,13 +628,20 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
         try
         {
-            var file = await PickUploadFileAsync(
-                PickerLocationId.DocumentsLibrary,
-                _types.Select(type => type.Value));
+            await LoadTypesAsync();
+            var videoExtensions = await LoadVideoTypesAsync();
+            var allExtensions = _types.Select(type => type.Value)
+                .Concat(videoExtensions)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            var file = await PickUploadFileAsync(PickerLocationId.DocumentsLibrary, allExtensions);
             if (file is null)
                 return;
 
-            await UploadIntoFolderAsync(folderId.Value, file.Name, file.Path);
+            if (IsVideoExtension(file.Name, videoExtensions))
+                await UploadVideoAsync(folderId.Value, file.Name, file.Path);
+            else
+                await UploadIntoFolderAsync(folderId.Value, file.Name, file.Path);
         }
         catch (Exception ex)
         {
@@ -568,24 +649,17 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
     }
 
-    private async void AddVideo_Click(object sender, RoutedEventArgs e)
+    private static bool IsVideoExtension(string fileName, IReadOnlyList<string> videoExtensions)
     {
-        var folderId = CurrentFolderId;
-        if (folderId is null)
-            return;
+        var ext = Path.GetExtension(fileName).TrimStart('.');
+        if (string.IsNullOrEmpty(ext))
+            return false;
 
-        try
-        {
-            var file = await PickUploadFileAsync(PickerLocationId.VideosLibrary, await LoadVideoTypesAsync());
-            if (file is null)
-                return;
+        if (videoExtensions.Count > 0)
+            return videoExtensions.Any(v => string.Equals(v.TrimStart('.'), ext, StringComparison.OrdinalIgnoreCase));
 
-            await UploadVideoAsync(folderId.Value, file.Name, file.Path);
-        }
-        catch (Exception ex)
-        {
-            ShowError(Loc.Current.VideoPickFailed(ex.Message));
-        }
+        // Запасной список на случай, если справочник видеотипов не загрузился.
+        return ext.ToLowerInvariant() is "mp4" or "m4v" or "webm" or "mov" or "mkv" or "avi";
     }
 
     /// <summary>
@@ -634,7 +708,30 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         return _videoTypes.Select(type => type.Value).ToList();
     }
 
-    private async Task UploadIntoFolderAsync(Guid folderId, string name, string path)
+    private Task UploadIntoFolderAsync(Guid folderId, string name, string path)
+        => RunUploadAsync(
+            async progress =>
+            {
+                var uploaded = await AppServices.Api.UploadFileAsync(name, path, progress);
+
+                // Файл создаётся отдельно, поэтому добавляем его в текущую папку;
+                // PATCH принимает полный набор файлов папки.
+                var folder = await AppServices.Api.GetFolderAsync(folderId);
+                var fileIds = (folder.Files ?? []).Select(file => file.Id).Append(uploaded.Id).ToList();
+                await AppServices.Api.UpdateFolderAsync(folderId, fileIds: fileIds);
+            },
+            Loc.Current.FileUploadFailed);
+
+    private Task UploadVideoAsync(Guid folderId, string name, string path)
+        => RunUploadAsync(
+            async progress =>
+            {
+                var video = await AppServices.Api.UploadVideoAsync(name, path, folderId, progress);
+                ShowSuccess(Loc.Current.VideoUploaded(video.Name));
+            },
+            Loc.Current.VideoUploadFailed);
+
+    private async Task RunUploadAsync(Func<IProgress<double>, Task> uploadAction, Func<string, string> formatError)
     {
         SetUploading(true);
         ErrorBar.IsOpen = false;
@@ -642,14 +739,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         try
         {
             var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-            var uploaded = await AppServices.Api.UploadFileAsync(name, path, progress);
-
-            // Файл создаётся отдельно, поэтому добавляем его в текущую папку;
-            // PATCH принимает полный набор файлов папки.
-            var folder = await AppServices.Api.GetFolderAsync(folderId);
-            var fileIds = (folder.Files ?? []).Select(file => file.Id).Append(uploaded.Id).ToList();
-            await AppServices.Api.UpdateFolderAsync(folderId, fileIds: fileIds);
-
+            await uploadAction(progress);
             await ReloadCurrentAsync();
         }
         catch (ApiException ex)
@@ -658,33 +748,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
         catch (Exception ex)
         {
-            ShowError(Loc.Current.FileUploadFailed(ex.Message));
-        }
-        finally
-        {
-            SetUploading(false);
-        }
-    }
-
-    private async Task UploadVideoAsync(Guid folderId, string name, string path)
-    {
-        SetUploading(true);
-        ErrorBar.IsOpen = false;
-
-        try
-        {
-            var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-            var video = await AppServices.Api.UploadVideoAsync(name, path, folderId, progress);
-            ShowSuccess(Loc.Current.VideoUploaded(video.Name));
-            await ReloadCurrentAsync();
-        }
-        catch (ApiException ex)
-        {
-            ShowError(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            ShowError(Loc.Current.VideoUploadFailed(ex.Message));
+            ShowError(formatError(ex.Message));
         }
         finally
         {

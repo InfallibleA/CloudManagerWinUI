@@ -9,31 +9,71 @@ public static class FileSaver
     /// Спрашивает у пользователя путь сохранения и скачивает файл.
     /// Возвращает путь к сохранённому файлу или <c>null</c>, если пользователь отменил выбор.
     /// </summary>
-    public static async Task<string?> DownloadAsync(
+    public static Task<string?> DownloadAsync(
         Guid fileId,
         string fileName,
         IProgress<double>? progress = null,
         CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(fileName))
-            fileName = "file.bin";
+        => SaveWithPickerAsync(
+            string.IsNullOrWhiteSpace(fileName) ? "file.bin" : fileName,
+            destination => AppServices.Api.DownloadFileAsync(fileId, destination, progress, ct));
 
+    /// <summary>
+    /// Получает presigned-ссылку на видео, спрашивает у пользователя путь сохранения и скачивает видео.
+    /// Возвращает путь к сохранённому файлу или <c>null</c>, если пользователь отменил выбор.
+    /// </summary>
+    public static async Task<string?> DownloadVideoAsync(
+        Guid videoId,
+        string videoName,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default)
+    {
+        var playback = await AppServices.Api.GetVideoPlaybackAsync(videoId, ct);
+        var suggestedName = EnsureVideoExtension(videoName, playback.ContentType);
+
+        return await SaveWithPickerAsync(
+            suggestedName,
+            destination => AppServices.Api.DownloadFromUrlAsync(playback.Url, destination, progress, ct));
+    }
+
+    private static async Task<string?> SaveWithPickerAsync(
+        string suggestedFileName,
+        Func<string, Task> downloadTo)
+    {
         string? destination;
         try
         {
-            destination = await PickDestinationAsync(fileName);
+            destination = await PickDestinationAsync(suggestedFileName);
         }
         catch (Exception)
         {
             // Если системный диалог недоступен, сохраняем в папку «Загрузки».
-            destination = Path.Combine(GetDownloadsFolder(), SanitizeFileName(fileName));
+            destination = Path.Combine(GetDownloadsFolder(), SanitizeFileName(suggestedFileName));
         }
 
         if (destination is null)
             return null;
 
-        await AppServices.Api.DownloadFileAsync(fileId, destination, progress, ct);
+        await downloadTo(destination);
         return destination;
+    }
+
+    private static string EnsureVideoExtension(string videoName, string? contentType)
+    {
+        var name = string.IsNullOrWhiteSpace(videoName) ? "video" : videoName;
+        if (!string.IsNullOrEmpty(Path.GetExtension(name)))
+            return name;
+
+        var ext = contentType?.ToLowerInvariant() switch
+        {
+            "video/mp4" => ".mp4",
+            "video/webm" => ".webm",
+            "video/quicktime" => ".mov",
+            "video/x-matroska" => ".mkv",
+            "video/x-msvideo" => ".avi",
+            _ => ".mp4",
+        };
+        return name + ext;
     }
 
     private static async Task<string?> PickDestinationAsync(string suggestedFileName)

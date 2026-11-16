@@ -50,6 +50,8 @@ public sealed record FileTypeDto(
     [property: JsonPropertyName("content_type")] string ContentType,
     [property: JsonPropertyName("is_image")] bool IsImage);
 
+public sealed record FileTextContent(string Text, bool IsTruncated);
+
 // --- Видео ---------------------------------------------------------------
 
 public sealed record VideoDto(
@@ -116,6 +118,9 @@ public sealed record CreateFolderRequest(
     [property: JsonPropertyName("file_ids")] IReadOnlyList<Guid>? FileIds = null);
 
 public sealed record FileUpdateRequest(
+    [property: JsonPropertyName("name")] string? Name);
+
+public sealed record VideoUpdateRequest(
     [property: JsonPropertyName("name")] string? Name);
 
 public sealed record FolderUpdateRequest(

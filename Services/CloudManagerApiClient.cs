@@ -187,22 +187,107 @@ public sealed class CloudManagerApiClient
             allowRefresh: true,
             cts.Token).ConfigureAwait(false);
 
+        await DownloadStreamToFileAsync(response, destinationPath, progress, cts.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Загружает содержимое текстового файла в память (не более <paramref name="maxBytes"/> байт,
+    /// чтобы огромные файлы не перегружали интерфейс).
+    /// </summary>
+    public async Task<FileTextContent> DownloadFileTextAsync(
+        Guid fileId,
+        int maxBytes = 2 * 1024 * 1024,
+        CancellationToken ct = default)
+    {
+        var (bytes, truncated) = await ReadFileBytesBoundedAsync(fileId, maxBytes, ct).ConfigureAwait(false);
+        using var bufferStream = new MemoryStream(bytes, writable: false);
+        using var reader = new StreamReader(bufferStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var text = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+        return new FileTextContent(text, truncated);
+    }
+
+    /// <summary>Загружает файл в память целиком для встроенного разбора документов (.doc/.docx).</summary>
+    public async Task<byte[]> DownloadFileBytesAsync(
+        Guid fileId,
+        int maxBytes = 15 * 1024 * 1024,
+        CancellationToken ct = default)
+    {
+        var (bytes, truncated) = await ReadFileBytesBoundedAsync(fileId, maxBytes, ct).ConfigureAwait(false);
+        if (truncated)
+            throw new InvalidDataException(Localization.Loc.Current.DocumentTooLarge(maxBytes / (1024 * 1024)));
+
+        return bytes;
+    }
+
+    private async Task<(byte[] Bytes, bool Truncated)> ReadFileBytesBoundedAsync(
+        Guid fileId,
+        int maxBytes,
+        CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromMinutes(2));
+
+        using var response = await SendWithRetryAsync(
+            () => CreateRequest(HttpMethod.Get, $"api/files/{fileId}/download"),
+            allowRefresh: true,
+            cts.Token).ConfigureAwait(false);
+
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
             throw CreateApiError(response.StatusCode, error);
         }
 
-        var total = response.Content.Headers.ContentLength ?? -1;
         await using var source = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
+        using var bufferStream = new MemoryStream();
+        var buffer = new byte[16384];
+        var truncated = false;
+
+        while (bufferStream.Length < maxBytes)
+        {
+            var toRead = (int)Math.Min(buffer.Length, maxBytes - bufferStream.Length + 1);
+            var read = await source.ReadAsync(buffer.AsMemory(0, toRead), cts.Token).ConfigureAwait(false);
+            if (read == 0)
+                break;
+
+            var allowed = (int)Math.Min(read, maxBytes - bufferStream.Length);
+            bufferStream.Write(buffer, 0, allowed);
+
+            if (read > allowed)
+            {
+                truncated = true;
+                break;
+            }
+        }
+
+        if (!truncated && await source.ReadAsync(buffer.AsMemory(0, 1), cts.Token).ConfigureAwait(false) > 0)
+            truncated = true;
+
+        return (bufferStream.ToArray(), truncated);
+    }
+
+    private async Task DownloadStreamToFileAsync(
+        HttpResponseMessage response,
+        string destinationPath,
+        IProgress<double>? progress,
+        CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            throw CreateApiError(response.StatusCode, error);
+        }
+
+        var total = response.Content.Headers.ContentLength ?? -1;
+        await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await using var target = File.Create(destinationPath);
 
         var buffer = new byte[81920];
         long transferred = 0;
         int read;
-        while ((read = await source.ReadAsync(buffer, cts.Token).ConfigureAwait(false)) > 0)
+        while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), cts.Token).ConfigureAwait(false);
+            await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
             transferred += read;
             if (total > 0)
                 progress?.Report(Math.Clamp((double)transferred / total, 0, 1));
@@ -292,6 +377,34 @@ public sealed class CloudManagerApiClient
             () => CreateRequest(HttpMethod.Get, $"api/videos/{videoId}/playback"),
             false,
             ct);
+
+    /// <summary>Скачивание по прямой presigned-ссылке без заголовка авторизации.</summary>
+    public async Task DownloadFromUrlAsync(
+        string url,
+        string destinationPath,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromHours(2));
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+            .ConfigureAwait(false);
+
+        await DownloadStreamToFileAsync(response, destinationPath, progress, cts.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>Переименование видео (доступно владельцу видео и админу).</summary>
+    public Task<VideoDto> UpdateVideoAsync(Guid videoId, string name, CancellationToken ct = default)
+        => SendJsonAsync<VideoDto>(
+            () => JsonRequest(HttpMethod.Patch, $"api/videos/{videoId}", new VideoUpdateRequest(name)),
+            true,
+            ct);
+
+    /// <summary>Удаление видео (<c>DELETE api/videos/{id}</c>).</summary>
+    public Task DeleteVideoAsync(Guid videoId, CancellationToken ct = default)
+        => SendNoContentAsync(() => CreateRequest(HttpMethod.Delete, $"api/videos/{videoId}"), true, ct);
 
     /// <summary>
     /// Загрузка медиафайла (<c>multipart/form-data</c>: <c>name</c> + <c>file</c>, у видео ещё

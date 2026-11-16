@@ -62,7 +62,17 @@ CloudManagerWinUI/
   ```
 
 ### Запуск (Run)
-- **Запуск через `dotnet run` (x64 Debug, регистрирует debug package identity через WinApp):**
+- **Видимый запуск на рабочем столе и в панели задач (из среды ИИ-агента):**
+  Терминал агента выполняется в изолированном рабочем столе (`WinSta0\exebox-...`), поэтому прямой запуск `.exe`, `dotnet run` или `winapp run` может открыть окно вне основного рабочего стола пользователя. Чтобы окно появилось на экране и в панели задач, нужно:
+  1. Собрать проект и при необходимости обновить debug-регистрацию пакета (через `winapp run . --detach --json` — при этом старый процесс можно остановить через `Stop-Process -Name CloudManagerWinUIApp -Force -ErrorAction SilentlyContinue`).
+  2. Запустить зарегистрированное приложение через оболочку Windows (`explorer.exe`) по `shell:AppsFolder`:
+     ```powershell
+     $app = Get-StartApps | Where-Object { $_.Name -eq 'CloudManagerWinUIApp' } | Select-Object -First 1
+     Start-Process "shell:AppsFolder\$($app.AppID)"
+     ```
+     (Для текущей конфигурации AUMID: `CCB9E176-3303-4528-AD9D-09B2132DBFBC_1z32rh13vfry6!App`.)
+  3. Проверить через `Get-CimInstance Win32_Process -Filter "Name='CloudManagerWinUIApp.exe'"`, что процесс запущен от имени `explorer.exe` (внутри `exebox`-терминала `MainWindowHandle` при этом может возвращать `0` даже у видимого окна).
+- **Запуск из обычного терминала пользователя (`dotnet run`, x64 Debug, регистрирует debug package identity через WinApp):**
   ```powershell
   dotnet run --project .\CloudManagerWinUIApp.csproj -c Debug -p:Platform=x64 -p:RuntimeIdentifier=win-x64
   ```

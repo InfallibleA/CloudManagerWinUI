@@ -97,11 +97,6 @@
                                         <FontIcon Glyph="&#xE7C3;" />
                                     </MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
-                                <MenuFlyoutItem Click="AddVideo_Click" Text="{x:Bind L.Video}">
-                                    <MenuFlyoutItem.Icon>
-                                        <FontIcon Glyph="&#xE714;" />
-                                    </MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
                             </MenuFlyout>
                         </Button.Flyout>
                         <StackPanel Orientation="Horizontal" Spacing="8">

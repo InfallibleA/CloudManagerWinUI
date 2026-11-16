@@ -16,6 +16,9 @@ internal static class ExplorerIcons
     /// <summary>Глиф файла.</summary>
     public const string FileGlyph = "\uE7C3";
 
+    /// <summary>Глиф текстового файла — открывается во встроенном просмотре.</summary>
+    public const string TextGlyph = "\uE8A5";
+
     /// <summary>Глиф видео — сразу видно, что элемент открывается в плеере.</summary>
     public const string VideoGlyph = "\uE768";
 
@@ -23,9 +26,9 @@ internal static class ExplorerIcons
     private static readonly SolidColorBrush FileBrush = new(Color.FromArgb(255, 0x8C, 0x9A, 0xAC));
     private static readonly SolidColorBrush VideoBrush = new(Color.FromArgb(255, 0x5B, 0x9D, 0xF0));
 
-    /// <summary>Глиф элемента: папка, видео или файл.</summary>
-    public static string GlyphFor(bool isFolder, bool isVideo = false)
-        => isFolder ? FolderGlyph : isVideo ? VideoGlyph : FileGlyph;
+    /// <summary>Глиф элемента: папка, видео, текстовый или обычный файл.</summary>
+    public static string GlyphFor(bool isFolder, bool isVideo = false, bool isText = false)
+        => isFolder ? FolderGlyph : isVideo ? VideoGlyph : isText ? TextGlyph : FileGlyph;
 
     /// <summary>Кисть значка: янтарная у папки, синяя у видео, серо-синяя у файла.</summary>
     public static SolidColorBrush BrushFor(bool isFolder, bool isVideo = false)
