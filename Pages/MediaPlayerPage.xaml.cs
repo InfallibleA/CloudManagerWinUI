@@ -90,7 +90,8 @@ public sealed partial class MediaPlayerPage : Page, IFrameBackHandler
             AudioTrackTitle.Text = name;
             Grid.SetRow(Player, 1);
             Grid.SetRowSpan(Player, 1);
-            Player.Height = 104;
+            Player.Height = double.NaN;
+            Player.MinHeight = 120;
             Player.MaxWidth = 640;
             Player.HorizontalAlignment = HorizontalAlignment.Stretch;
             Player.VerticalAlignment = VerticalAlignment.Bottom;
@@ -105,6 +106,7 @@ public sealed partial class MediaPlayerPage : Page, IFrameBackHandler
             Grid.SetRow(Player, 0);
             Grid.SetRowSpan(Player, 2);
             Player.Height = double.NaN;
+            Player.MinHeight = 0;
             Player.MaxWidth = double.PositiveInfinity;
             Player.HorizontalAlignment = HorizontalAlignment.Stretch;
             Player.VerticalAlignment = VerticalAlignment.Stretch;
