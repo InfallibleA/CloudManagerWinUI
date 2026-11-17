@@ -76,7 +76,7 @@ public sealed class AdminFileRow(FileDto dto)
 
     public string Glyph => ExplorerIcons.FileGlyph;
 
-    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(false);
+    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(ExplorerItemKind.File);
 
     /// <summary>Тип файла так, как его называет сервер (<c>value</c>).</summary>
     public string TypeText { get; } = dto.Type;
@@ -118,9 +118,9 @@ public sealed class AdminExplorerRow
 
     public bool IsFolder { get; }
 
-    public string Glyph => ExplorerIcons.GlyphFor(IsFolder);
+    public string Glyph => ExplorerIcons.GlyphFor(IsFolder ? ExplorerItemKind.Folder : ExplorerItemKind.File);
 
-    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder);
+    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder ? ExplorerItemKind.Folder : ExplorerItemKind.File);
 
     /// <summary>Размер файла; у папки размера нет — прочерк.</summary>
     public string SizeText { get; }

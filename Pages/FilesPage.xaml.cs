@@ -11,52 +11,45 @@ using Windows.Storage.Pickers;
 
 namespace CloudManagerWinUIApp.Pages;
 
-/// <summary>Элемент сетки файлового менеджера: папка, файл или видео.</summary>
+/// <summary>Элемент сетки файлового менеджера: папка, файл, видео или аудио.</summary>
 public sealed class ExplorerItem
 {
-    private ExplorerItem(Guid id, string name, bool isFolder, bool isVideo, bool isText, bool isSpreadsheet)
+    private ExplorerItem(Guid id, string name, ExplorerItemKind kind)
     {
         Id = id;
         Name = name;
-        IsFolder = isFolder;
-        IsVideo = isVideo;
-        IsText = isText;
-        IsSpreadsheet = isSpreadsheet;
+        Kind = kind;
     }
 
     public Guid Id { get; }
 
     public string Name { get; }
 
-    public bool IsFolder { get; }
+    public ExplorerItemKind Kind { get; }
 
-    /// <summary>Видео открывается кликом в плеере.</summary>
-    public bool IsVideo { get; }
+    public string Glyph => ExplorerIcons.GlyphFor(Kind);
 
-    /// <summary>Текстовый файл открывается кликом во встроенном просмотре.</summary>
-    public bool IsText { get; }
+    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(Kind);
 
-    /// <summary>Таблица (.xlsx/.xlsm/.xlsb/.xltx/.xltm/.xls) открывается во встроенном просмотре таблиц.</summary>
-    public bool IsSpreadsheet { get; }
-
-    public string Glyph => ExplorerIcons.GlyphFor(IsFolder, IsVideo, IsText, IsSpreadsheet);
-
-    public SolidColorBrush IconBrush => ExplorerIcons.BrushFor(IsFolder, IsVideo, IsSpreadsheet);
-
-    public string AutomationName => IsFolder
-        ? Loc.Current.FolderAutomation(Name)
-        : IsVideo
-            ? Loc.Current.VideoAutomation(Name)
-            : Loc.Current.FileAutomation(Name);
+    public string AutomationName => Kind switch
+    {
+        ExplorerItemKind.Folder => Loc.Current.FolderAutomation(Name),
+        ExplorerItemKind.Video => Loc.Current.VideoAutomation(Name),
+        ExplorerItemKind.Audio => Loc.Current.AudioAutomation(Name),
+        _ => Loc.Current.FileAutomation(Name),
+    };
 
     public static ExplorerItem FromFolder(FolderShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: true, isVideo: false, isText: false, isSpreadsheet: false);
+        => new(dto.Id, dto.Name, ExplorerItemKind.Folder);
 
     public static ExplorerItem FromFile(FileShortDto dto, bool isText = false, bool isSpreadsheet = false)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: false, isText: isText, isSpreadsheet: isSpreadsheet);
+        => new(dto.Id, dto.Name, isSpreadsheet ? ExplorerItemKind.Spreadsheet : isText ? ExplorerItemKind.Text : ExplorerItemKind.File);
 
     public static ExplorerItem FromVideo(VideoShortDto dto)
-        => new(dto.Id, dto.Name, isFolder: false, isVideo: true, isText: false, isSpreadsheet: false);
+        => new(dto.Id, dto.Name, ExplorerItemKind.Video);
+
+    public static ExplorerItem FromAudio(AudioShortDto dto)
+        => new(dto.Id, dto.Name, ExplorerItemKind.Audio);
 }
 
 /// <summary>Сегмент пути в «хлебных крошках».</summary>
@@ -84,6 +77,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     private readonly List<FolderCrumb> _path = [];
     private IReadOnlyList<FileTypeDto> _types = [];
     private IReadOnlyList<VideoTypeDto> _videoTypes = [];
+    private IReadOnlyList<AudioTypeDto> _audioTypes = [];
 
     public FilesPage()
     {
@@ -266,6 +260,8 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             ItemsGrid.Items.Add(ExplorerItem.FromFile(file, IsTextFile(file), IsSpreadsheetFile(file)));
         foreach (var video in folder.Videos ?? [])
             ItemsGrid.Items.Add(ExplorerItem.FromVideo(video));
+        foreach (var audio in folder.Audios ?? [])
+            ItemsGrid.Items.Add(ExplorerItem.FromAudio(audio));
 
         FolderBreadcrumb.ItemsSource = _path.ToList();
         EmptyText.Visibility = ItemsGrid.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -283,19 +279,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     }
 
     private async Task LoadTypesAsync()
-    {
-        if (_types.Count > 0)
-            return;
-
-        try
-        {
-            _types = await AppServices.Api.GetFileTypesAsync() ?? [];
-        }
-        catch (Exception)
-        {
-            _types = [];
-        }
-    }
+        => _types = await LoadCachedTypesAsync(_types, () => AppServices.Api.GetFileTypesAsync());
 
     private static bool IsSpreadsheetFile(FileShortDto dto)
     {
@@ -349,32 +333,31 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         if (e.ClickedItem is not ExplorerItem item)
             return;
 
-        if (item.IsVideo)
+        switch (item.Kind)
         {
-            Frame.Navigate(
-                typeof(VideoPlayerPage),
-                new VideoPlaybackRequest(item.Id, item.Name, _path.ToList()));
-            return;
+            case ExplorerItemKind.Video:
+                OpenMediaPlayer(item, MediaKind.Video);
+                break;
+            case ExplorerItemKind.Audio:
+                OpenMediaPlayer(item, MediaKind.Audio);
+                break;
+            case ExplorerItemKind.Spreadsheet:
+                OpenSpreadsheetViewer(item);
+                break;
+            case ExplorerItemKind.Text:
+                OpenTextViewer(item);
+                break;
+            case ExplorerItemKind.Folder:
+                _path.Add(new FolderCrumb(item.Name, item.Id));
+                await OpenFolderAsync(item.Id);
+                break;
         }
-
-        if (item.IsSpreadsheet)
-        {
-            OpenSpreadsheetViewer(item);
-            return;
-        }
-
-        if (item.IsText)
-        {
-            OpenTextViewer(item);
-            return;
-        }
-
-        if (!item.IsFolder)
-            return;
-
-        _path.Add(new FolderCrumb(item.Name, item.Id));
-        await OpenFolderAsync(item.Id);
     }
+
+    private void OpenMediaPlayer(ExplorerItem item, MediaKind kind)
+        => Frame.Navigate(
+            typeof(MediaPlayerPage),
+            new MediaPlaybackRequest(item.Id, item.Name, kind, _path.ToList()));
 
     private void OpenTextViewer(ExplorerItem item)
         => Frame.Navigate(
@@ -438,37 +421,47 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         var strings = Loc.Current;
         var flyout = new MenuFlyout();
 
-        if (item.IsFolder)
+        switch (item.Kind)
         {
-            flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFolderAsync(item)));
-            flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFolderAsync(item)));
-        }
-        else if (item.IsVideo)
-        {
-            flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteVideoAsync(item)));
-            flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameVideoAsync(item)));
-            flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadVideoAsync(item)));
-        }
-        else
-        {
-            if (item.IsSpreadsheet || item.IsText)
-            {
-                flyout.Items.Add(CreateMenuItem(strings.Open, () =>
-                {
-                    if (item.IsSpreadsheet)
-                        OpenSpreadsheetViewer(item);
-                    else
-                        OpenTextViewer(item);
-                    return Task.CompletedTask;
-                }));
-            }
+            case ExplorerItemKind.Folder:
+                flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFolderAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFolderAsync(item)));
+                break;
 
-            flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFileAsync(item)));
-            flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFileAsync(item)));
-            flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadFileAsync(item)));
+            case ExplorerItemKind.Video:
+                flyout.Items.Add(CreateSyncMenuItem(strings.Open, () => OpenMediaPlayer(item, MediaKind.Video)));
+                flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteVideoAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameVideoAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadVideoAsync(item)));
+                break;
+
+            case ExplorerItemKind.Audio:
+                flyout.Items.Add(CreateSyncMenuItem(strings.Open, () => OpenMediaPlayer(item, MediaKind.Audio)));
+                flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteAudioAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameAudioAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadAudioAsync(item)));
+                break;
+
+            default:
+                if (item.Kind == ExplorerItemKind.Spreadsheet)
+                    flyout.Items.Add(CreateSyncMenuItem(strings.Open, () => OpenSpreadsheetViewer(item)));
+                else if (item.Kind == ExplorerItemKind.Text)
+                    flyout.Items.Add(CreateSyncMenuItem(strings.Open, () => OpenTextViewer(item)));
+
+                flyout.Items.Add(CreateMenuItem(strings.Delete, () => DeleteFileAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Rename, () => RenameFileAsync(item)));
+                flyout.Items.Add(CreateMenuItem(strings.Download, () => DownloadFileAsync(item)));
+                break;
         }
 
         flyout.ShowAt(target, new FlyoutShowOptions { Position = position });
+    }
+
+    private static MenuFlyoutItem CreateSyncMenuItem(string text, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text };
+        item.Click += (_, _) => action();
+        return item;
     }
 
     private static MenuFlyoutItem CreateMenuItem(string text, Func<Task> action)
@@ -486,6 +479,9 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
     private Task RenameVideoAsync(ExplorerItem item)
         => RenameItemAsync(Loc.Current.RenameVideo, item.Name, name => AppServices.Api.UpdateVideoAsync(item.Id, name));
+
+    private Task RenameAudioAsync(ExplorerItem item)
+        => RenameItemAsync(Loc.Current.RenameAudio, item.Name, name => AppServices.Api.UpdateAudioAsync(item.Id, name));
 
     private async Task RenameItemAsync(string title, string currentName, Func<string, Task> renameApi)
     {
@@ -527,6 +523,15 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             () => AppServices.Api.DeleteVideoAsync(item.Id));
     }
 
+    private Task DeleteAudioAsync(ExplorerItem item)
+    {
+        var strings = Loc.Current;
+        return DeleteItemAsync(
+            strings.DeleteAudioTitle,
+            strings.DeleteAudioMessage(item.Name),
+            () => AppServices.Api.DeleteAudioAsync(item.Id));
+    }
+
     private async Task DeleteItemAsync(string title, string message, Func<Task> deleteApi)
     {
         var confirmed = await ConfirmAsync(title, message, Loc.Current.Delete);
@@ -540,25 +545,22 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         });
     }
 
-    private async Task DownloadFileAsync(ExplorerItem item)
-    {
-        await RunAsync(async () =>
-        {
-            var path = await FileSaver.DownloadAsync(item.Id, item.Name);
-            if (path is not null)
-                ShowSuccess(Loc.Current.FileSaved, path);
-        });
-    }
+    private Task DownloadFileAsync(ExplorerItem item)
+        => DownloadEntryAsync(() => FileSaver.DownloadAsync(item.Id, item.Name), Loc.Current.FileSaved);
 
-    private async Task DownloadVideoAsync(ExplorerItem item)
-    {
-        await RunAsync(async () =>
+    private Task DownloadVideoAsync(ExplorerItem item)
+        => DownloadEntryAsync(() => FileSaver.DownloadVideoAsync(item.Id, item.Name), Loc.Current.VideoSaved);
+
+    private Task DownloadAudioAsync(ExplorerItem item)
+        => DownloadEntryAsync(() => FileSaver.DownloadAudioAsync(item.Id, item.Name), Loc.Current.AudioSaved);
+
+    private Task DownloadEntryAsync(Func<Task<string?>> download, string successTitle)
+        => RunAsync(async () =>
         {
-            var path = await FileSaver.DownloadVideoAsync(item.Id, item.Name);
+            var path = await download();
             if (path is not null)
-                ShowSuccess(Loc.Current.VideoSaved, path);
+                ShowSuccess(successTitle, path);
         });
-    }
 
     // --- Добавление папки и файла ----------------------------------------
 
@@ -655,36 +657,33 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         {
             await LoadTypesAsync();
             var videoExtensions = await LoadVideoTypesAsync();
+            var audioExtensions = await LoadAudioTypesAsync();
             var allExtensions = _types.Select(type => type.Value)
                 .Concat(videoExtensions)
+                .Concat(audioExtensions)
                 .Distinct(StringComparer.OrdinalIgnoreCase);
 
             var file = await PickUploadFileAsync(PickerLocationId.DocumentsLibrary, allExtensions);
             if (file is null)
                 return;
 
-            if (IsVideoExtension(file.Name, videoExtensions))
-                await UploadVideoAsync(folderId.Value, file.Name, file.Path);
-            else
-                await UploadIntoFolderAsync(folderId.Value, file.Name, file.Path);
+            switch (MediaClassifier.ClassifyUpload(file.Name, videoExtensions, audioExtensions))
+            {
+                case MediaUploadKind.Video:
+                    await UploadVideoAsync(folderId.Value, file.Name, file.Path);
+                    break;
+                case MediaUploadKind.Audio:
+                    await UploadAudioAsync(folderId.Value, file.Name, file.Path);
+                    break;
+                default:
+                    await UploadIntoFolderAsync(folderId.Value, file.Name, file.Path);
+                    break;
+            }
         }
         catch (Exception ex)
         {
             ShowError(Loc.Current.FilePickFailed(ex.Message));
         }
-    }
-
-    private static bool IsVideoExtension(string fileName, IReadOnlyList<string> videoExtensions)
-    {
-        var ext = Path.GetExtension(fileName).TrimStart('.');
-        if (string.IsNullOrEmpty(ext))
-            return false;
-
-        if (videoExtensions.Count > 0)
-            return videoExtensions.Any(v => string.Equals(v.TrimStart('.'), ext, StringComparison.OrdinalIgnoreCase));
-
-        // Запасной список на случай, если справочник видеотипов не загрузился.
-        return ext.ToLowerInvariant() is "mp4" or "m4v" or "webm" or "mov" or "mkv" or "avi";
     }
 
     /// <summary>
@@ -718,19 +717,31 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
     private async Task<IReadOnlyList<string>> LoadVideoTypesAsync()
     {
-        if (_videoTypes.Count == 0)
-        {
-            try
-            {
-                _videoTypes = await AppServices.Api.GetVideoTypesAsync() ?? [];
-            }
-            catch (Exception)
-            {
-                _videoTypes = [];
-            }
-        }
-
+        _videoTypes = await LoadCachedTypesAsync(_videoTypes, () => AppServices.Api.GetVideoTypesAsync());
         return _videoTypes.Select(type => type.Value).ToList();
+    }
+
+    private async Task<IReadOnlyList<string>> LoadAudioTypesAsync()
+    {
+        _audioTypes = await LoadCachedTypesAsync(_audioTypes, () => AppServices.Api.GetAudioTypesAsync());
+        return _audioTypes.Select(type => type.Value).ToList();
+    }
+
+    private static async Task<IReadOnlyList<T>> LoadCachedTypesAsync<T>(
+        IReadOnlyList<T> cached,
+        Func<Task<T[]>> fetch)
+    {
+        if (cached.Count > 0)
+            return cached;
+
+        try
+        {
+            return await fetch() ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
     }
 
     private Task UploadIntoFolderAsync(Guid folderId, string name, string path)
@@ -755,6 +766,16 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
                 ShowSuccess(Loc.Current.VideoUploaded(video.Name));
             },
             Loc.Current.VideoUploadFailed);
+
+    private Task UploadAudioAsync(Guid folderId, string name, string path)
+        => RunUploadAsync(
+            async progress =>
+            {
+                var contentType = MediaClassifier.ResolveAudioContentType(path, _audioTypes);
+                var audio = await AppServices.Api.UploadAudioAsync(name, path, folderId, progress, contentType: contentType);
+                ShowSuccess(Loc.Current.AudioUploaded(audio.Name));
+            },
+            Loc.Current.AudioUploadFailed);
 
     private async Task RunUploadAsync(Func<IProgress<double>, Task> uploadAction, Func<string, string> formatError)
     {

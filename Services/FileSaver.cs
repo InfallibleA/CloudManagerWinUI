@@ -29,11 +29,36 @@ public static class FileSaver
         CancellationToken ct = default)
     {
         var playback = await AppServices.Api.GetVideoPlaybackAsync(videoId, ct);
-        var suggestedName = EnsureVideoExtension(videoName, playback.ContentType);
+        return await DownloadPlaybackMediaAsync(playback.Url, playback.ContentType, videoName, "video", ".mp4", progress, ct);
+    }
 
-        return await SaveWithPickerAsync(
+    /// <summary>
+    /// Получает presigned-ссылку на аудио, спрашивает у пользователя путь сохранения и скачивает аудио.
+    /// Возвращает путь к сохранённому файлу или <c>null</c>, если пользователь отменил выбор.
+    /// </summary>
+    public static async Task<string?> DownloadAudioAsync(
+        Guid audioId,
+        string audioName,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default)
+    {
+        var playback = await AppServices.Api.GetAudioPlaybackAsync(audioId, ct);
+        return await DownloadPlaybackMediaAsync(playback.Url, playback.ContentType, audioName, "audio", ".mp3", progress, ct);
+    }
+
+    private static Task<string?> DownloadPlaybackMediaAsync(
+        string url,
+        string? contentType,
+        string mediaName,
+        string fallbackBaseName,
+        string defaultExtension,
+        IProgress<double>? progress,
+        CancellationToken ct)
+    {
+        var suggestedName = MediaClassifier.EnsureExtension(mediaName, contentType, fallbackBaseName, defaultExtension);
+        return SaveWithPickerAsync(
             suggestedName,
-            destination => AppServices.Api.DownloadFromUrlAsync(playback.Url, destination, progress, ct));
+            destination => AppServices.Api.DownloadFromUrlAsync(url, destination, progress, ct));
     }
 
     private static async Task<string?> SaveWithPickerAsync(
@@ -56,24 +81,6 @@ public static class FileSaver
 
         await downloadTo(destination);
         return destination;
-    }
-
-    private static string EnsureVideoExtension(string videoName, string? contentType)
-    {
-        var name = string.IsNullOrWhiteSpace(videoName) ? "video" : videoName;
-        if (!string.IsNullOrEmpty(Path.GetExtension(name)))
-            return name;
-
-        var ext = contentType?.ToLowerInvariant() switch
-        {
-            "video/mp4" => ".mp4",
-            "video/webm" => ".webm",
-            "video/quicktime" => ".mov",
-            "video/x-matroska" => ".mkv",
-            "video/x-msvideo" => ".avi",
-            _ => ".mp4",
-        };
-        return name + ext;
     }
 
     private static async Task<string?> PickDestinationAsync(string suggestedFileName)

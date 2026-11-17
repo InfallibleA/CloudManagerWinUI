@@ -80,6 +80,34 @@ public sealed record VideoPlaybackDto(
     [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt,
     [property: JsonPropertyName("expires_in")] int ExpiresIn);
 
+// --- Аудио ---------------------------------------------------------------
+
+public sealed record AudioDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("object_key")] string? ObjectKey,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("created_at")] DateTimeOffset CreatedAt);
+
+public sealed record AudioTypeDto(
+    [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("content_type")] string ContentType);
+
+/// <summary>Аудио в содержимом папки: без <c>object_key</c>, аудио адресуется по id.</summary>
+public sealed record AudioShortDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("size")] long Size,
+    [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt = null);
+
+public sealed record AudioPlaybackDto(
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("content_type")] string ContentType,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt,
+    [property: JsonPropertyName("expires_in")] int ExpiresIn);
+
 // --- Новости -------------------------------------------------------------
 
 public sealed record NewsDto(
@@ -109,13 +137,16 @@ public sealed record FolderDto(
     [property: JsonPropertyName("is_root")] bool IsRoot = false,
     [property: JsonPropertyName("files")] IReadOnlyList<FileShortDto>? Files = null,
     [property: JsonPropertyName("videos")] IReadOnlyList<VideoShortDto>? Videos = null,
+    [property: JsonPropertyName("audios")] IReadOnlyList<AudioShortDto>? Audios = null,
     [property: JsonPropertyName("children")] IReadOnlyList<FolderShortDto>? Children = null,
     [property: JsonPropertyName("created_at")] DateTimeOffset? CreatedAt = null);
 
 public sealed record CreateFolderRequest(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("parent_id")] Guid? ParentId = null,
-    [property: JsonPropertyName("file_ids")] IReadOnlyList<Guid>? FileIds = null);
+    [property: JsonPropertyName("file_ids")] IReadOnlyList<Guid>? FileIds = null,
+    [property: JsonPropertyName("video_ids")] IReadOnlyList<Guid>? VideoIds = null,
+    [property: JsonPropertyName("audio_ids")] IReadOnlyList<Guid>? AudioIds = null);
 
 public sealed record FileUpdateRequest(
     [property: JsonPropertyName("name")] string? Name);
@@ -123,10 +154,15 @@ public sealed record FileUpdateRequest(
 public sealed record VideoUpdateRequest(
     [property: JsonPropertyName("name")] string? Name);
 
+public sealed record AudioUpdateRequest(
+    [property: JsonPropertyName("name")] string? Name);
+
 public sealed record FolderUpdateRequest(
     [property: JsonPropertyName("name")] string? Name = null,
     [property: JsonPropertyName("parent_id")] Guid? ParentId = null,
-    [property: JsonPropertyName("file_ids")] IReadOnlyList<Guid>? FileIds = null);
+    [property: JsonPropertyName("file_ids")] IReadOnlyList<Guid>? FileIds = null,
+    [property: JsonPropertyName("video_ids")] IReadOnlyList<Guid>? VideoIds = null,
+    [property: JsonPropertyName("audio_ids")] IReadOnlyList<Guid>? AudioIds = null);
 
 // --- Пагинация -----------------------------------------------------------
 

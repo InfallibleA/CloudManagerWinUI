@@ -86,7 +86,7 @@ public sealed class Strings(bool russian)
 
     public string AddEntry => T("Добавить", "Add");
 
-    public string AddEntryAutomation => T("Добавить папку, файл или видео", "Add a folder, file or video");
+    public string AddEntryAutomation => T("Добавить папку, файл, видео или аудио", "Add a folder, file, video or audio");
 
     public string Folder => T("Папка", "Folder");
 
@@ -94,8 +94,13 @@ public sealed class Strings(bool russian)
 
     public string Video => T("Видео", "Video");
 
+    public string Audio => T("Аудио", "Audio");
+
     /// <summary>Имя видео для экранного диктора в содержимом папки.</summary>
     public string VideoAutomation(string name) => T($"Видео «{name}»", $"Video «{name}»");
+
+    /// <summary>Имя аудио для экранного диктора в содержимом папки.</summary>
+    public string AudioAutomation(string name) => T($"Аудио «{name}»", $"Audio «{name}»");
 
     public string NoRootFolder => T("Коренной папки нет", "No root folder");
 
@@ -122,6 +127,8 @@ public sealed class Strings(bool russian)
 
     public string RenameVideo => T("Переименовать видео", "Rename video");
 
+    public string RenameAudio => T("Переименовать аудио", "Rename audio");
+
     public string NewName => T("Новое имя", "New name");
 
     public string DeleteFileTitle => T("Удалить файл?", "Delete file?");
@@ -139,6 +146,11 @@ public sealed class Strings(bool russian)
 
     public string DeleteVideoMessage(string name)
         => T($"Видео «{name}» будет удалено без возможности восстановления.", $"The video «{name}» will be deleted permanently.");
+
+    public string DeleteAudioTitle => T("Удалить аудио?", "Delete audio?");
+
+    public string DeleteAudioMessage(string name)
+        => T($"Аудио «{name}» будет удалено без возможности восстановления.", $"The audio «{name}» will be deleted permanently.");
 
     public string Open => T("Открыть", "Open");
 
@@ -200,6 +212,8 @@ public sealed class Strings(bool russian)
 
     public string VideoSaved => T("Видео сохранено", "Video saved");
 
+    public string AudioSaved => T("Аудио сохранено", "Audio saved");
+
     public string FilesOpenFailed(string message)
         => T($"Не удалось открыть файлы: {message}", $"Couldn't open the files: {message}");
 
@@ -225,6 +239,17 @@ public sealed class Strings(bool russian)
         => string.IsNullOrWhiteSpace(reason)
             ? T("Не удалось воспроизвести видео", "Couldn't play the video")
             : T($"Не удалось воспроизвести видео: {reason}", $"Couldn't play the video: {reason}");
+
+    public string AudioUploaded(string name)
+        => T($"Аудио «{name}» загружено", $"Audio «{name}» uploaded");
+
+    public string AudioUploadFailed(string message)
+        => T($"Не удалось загрузить аудио: {message}", $"Couldn't upload the audio: {message}");
+
+    public string AudioPlaybackFailed(string reason)
+        => string.IsNullOrWhiteSpace(reason)
+            ? T("Не удалось воспроизвести аудио", "Couldn't play the audio")
+            : T($"Не удалось воспроизвести аудио: {reason}", $"Couldn't play the audio: {reason}");
 
     // --- Диалог входа/регистрации ----------------------------------------
 

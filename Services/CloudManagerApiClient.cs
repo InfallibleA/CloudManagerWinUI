@@ -406,9 +406,56 @@ public sealed class CloudManagerApiClient
     public Task DeleteVideoAsync(Guid videoId, CancellationToken ct = default)
         => SendNoContentAsync(() => CreateRequest(HttpMethod.Delete, $"api/videos/{videoId}"), true, ct);
 
+    // --- Аудио ------------------------------------------------------------
+
     /// <summary>
-    /// Загрузка медиафайла (<c>multipart/form-data</c>: <c>name</c> + <c>file</c>, у видео ещё
-    /// <c>folder_id</c>). Файлы и видео отличаются только путём и типом ответа.
+    /// Справочник разрешённых типов аудио (<c>GET api/audios/types</c>).
+    /// Требует авторизации (Bearer-токен).
+    /// </summary>
+    public Task<AudioTypeDto[]> GetAudioTypesAsync(CancellationToken ct = default)
+        => SendJsonAsync<AudioTypeDto[]>(() => CreateRequest(HttpMethod.Get, "api/audios/types"), true, ct);
+
+    /// <summary>Загрузка аудио (<c>POST api/audios</c>, любой авторизованный пользователь).</summary>
+    public Task<AudioDto> UploadAudioAsync(
+        string name,
+        string filePath,
+        Guid? folderId = null,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default,
+        string? contentType = null)
+        => UploadAsync<AudioDto>(
+            "api/audios",
+            name,
+            filePath,
+            progress,
+            ct,
+            folderId,
+            contentType ?? MediaClassifier.ResolveAudioContentType(filePath));
+
+    /// <summary>
+    /// Presigned-ссылка на воспроизведение аудио (<c>GET api/audios/{id}/playback</c>).
+    /// Требует авторизации (Bearer-токен).
+    /// </summary>
+    public Task<AudioPlaybackDto> GetAudioPlaybackAsync(Guid audioId, CancellationToken ct = default)
+        => SendJsonAsync<AudioPlaybackDto>(
+            () => CreateRequest(HttpMethod.Get, $"api/audios/{audioId}/playback"),
+            true,
+            ct);
+
+    /// <summary>Переименование аудио (<c>PATCH api/audios/{id}</c>, доступно владельцу и админу).</summary>
+    public Task<AudioDto> UpdateAudioAsync(Guid audioId, string name, CancellationToken ct = default)
+        => SendJsonAsync<AudioDto>(
+            () => JsonRequest(HttpMethod.Patch, $"api/audios/{audioId}", new AudioUpdateRequest(name)),
+            true,
+            ct);
+
+    /// <summary>Удаление аудио (<c>DELETE api/audios/{id}</c>).</summary>
+    public Task DeleteAudioAsync(Guid audioId, CancellationToken ct = default)
+        => SendNoContentAsync(() => CreateRequest(HttpMethod.Delete, $"api/audios/{audioId}"), true, ct);
+
+    /// <summary>
+    /// Загрузка медиафайла (<c>multipart/form-data</c>: <c>name</c> + <c>file</c>, у видео и аудио ещё
+    /// <c>folder_id</c>). Файлы, видео и аудио отличаются только путём, MIME-типом и типом ответа.
     /// </summary>
     private async Task<T> UploadAsync<T>(
         string path,
@@ -416,7 +463,8 @@ public sealed class CloudManagerApiClient
         string filePath,
         IProgress<double>? progress,
         CancellationToken ct,
-        Guid? folderId = null)
+        Guid? folderId = null,
+        string? contentType = null)
     {
         Func<HttpRequestMessage> factory = () =>
         {
@@ -430,7 +478,7 @@ public sealed class CloudManagerApiClient
             var streamContent = progress is null
                 ? new StreamContent(stream)
                 : new StreamContent(new ProgressStream(stream, stream.Length, progress));
-            streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(filePath));
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType ?? GetContentType(filePath));
             content.Add(MultipartFilePart.Wrap(streamContent, Path.GetFileName(filePath)));
 
             var request = CreateRequest(HttpMethod.Post, path);
@@ -481,7 +529,9 @@ public sealed class CloudManagerApiClient
         bool allowRefresh,
         CancellationToken ct)
     {
-        var response = await _http.SendAsync(factory(), HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        HttpResponseMessage response;
+        using (var request = factory())
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
         if (response.StatusCode != HttpStatusCode.Unauthorized)
             return response;
@@ -500,7 +550,9 @@ public sealed class CloudManagerApiClient
         }
 
         response.Dispose();
-        var retried = await _http.SendAsync(factory(), HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        HttpResponseMessage retried;
+        using (var retryRequest = factory())
+            retried = await _http.SendAsync(retryRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
         // Свежий токен тоже не принят — сессия действительно потеряна.
         if (retried.StatusCode == HttpStatusCode.Unauthorized)
@@ -577,6 +629,13 @@ public sealed class CloudManagerApiClient
         ".mov" => "video/quicktime",
         ".mkv" => "video/x-matroska",
         ".avi" => "video/x-msvideo",
+        ".mp3" => "audio/mpeg",
+        ".wav" => "audio/wav",
+        ".ogg" => "audio/ogg",
+        ".aac" => "audio/aac",
+        ".flac" => "audio/flac",
+        ".m4a" => "audio/mp4",
+        ".opus" => "audio/opus",
         ".doc" => "application/msword",
         ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".xls" => "application/vnd.ms-excel",
