@@ -82,7 +82,7 @@ public sealed class AuthService
     /// <summary>Восстанавливает сессию из хранилища при запуске приложения.</summary>
     public async Task InitializeAsync()
     {
-        var saved = _store.Load();
+        var saved = await Task.Run(_store.Load).ConfigureAwait(false);
         if (saved is null)
             return;
 

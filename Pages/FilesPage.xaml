@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:CloudManagerWinUIApp.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    NavigationCacheMode="Enabled"
     mc:Ignorable="d">
 
     <Grid Padding="24,16,24,24" RowSpacing="12">
@@ -29,6 +30,7 @@
             <!-- Пользователь не авторизован -->
             <StackPanel
                 x:Name="AuthRequiredPanel"
+                x:Load="False"
                 MaxWidth="680"
                 HorizontalAlignment="Left"
                 Spacing="16"
@@ -61,6 +63,7 @@
             <!-- Содержимое -->
             <Grid
                 x:Name="FilesRoot"
+                x:Load="False"
                 RowSpacing="12"
                 Visibility="Collapsed">
                 <Grid.RowDefinitions>

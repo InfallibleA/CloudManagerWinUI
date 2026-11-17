@@ -78,6 +78,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     private IReadOnlyList<FileTypeDto> _types = [];
     private IReadOnlyList<VideoTypeDto> _videoTypes = [];
     private IReadOnlyList<AudioTypeDto> _audioTypes = [];
+    private Guid? _loadedUserId;
 
     public FilesPage()
     {
@@ -111,21 +112,48 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         AppServices.Auth.StateChanged += OnAuthStateChanged;
         UpdateAuthState();
 
-        await LoadTypesAsync();
+        var typesTask = LoadTypesAsync();
 
         if (!AppServices.Auth.IsAuthenticated)
-            return;
-
-        // Возврат из плеера: показываем ту же папку, из которой открывали видео.
-        if (e.Parameter is FolderPathRequest restore && restore.Path.Count > 0)
         {
-            _path.Clear();
-            _path.AddRange(restore.Path);
-            await RunAsync(() => OpenFolderAsync(_path[^1].FolderId));
+            ClearItems();
             return;
         }
 
-        await RunAsync(LoadRootAsync);
+        var currentUserId = AppServices.Auth.User?.Id;
+
+        // Возврат из плеера/просмотрщика: показываем ту же папку, не перезагружая если кэш актуален.
+        if (e.Parameter is FolderPathRequest restore && restore.Path.Count > 0)
+        {
+            if (_loadedUserId == currentUserId && PathEquals(_path, restore.Path))
+            {
+                await typesTask;
+                return;
+            }
+
+            _path.Clear();
+            _path.AddRange(restore.Path);
+            _loadedUserId = currentUserId;
+            await RunAsync(() => OpenFolderAsync(_path[^1].FolderId, typesTask));
+            return;
+        }
+
+        if (_loadedUserId != currentUserId || _path.Count == 0)
+            await RunAsync(() => LoadRootAsync(typesTask));
+    }
+
+    private static bool PathEquals(IReadOnlyList<FolderCrumb> a, IReadOnlyList<FolderCrumb> b)
+    {
+        if (a.Count != b.Count)
+            return false;
+
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (a[i].FolderId != b[i].FolderId)
+                return false;
+        }
+
+        return true;
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e)
@@ -149,7 +177,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         UpdateAuthState();
 
         if (AppServices.Auth.IsAuthenticated)
-            _ = RunAsync(LoadRootAsync);
+            _ = RunAsync(() => LoadRootAsync());
         else
             ClearItems();
     }
@@ -157,17 +185,35 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     private void UpdateAuthState()
     {
         var authorized = AppServices.Auth.IsAuthenticated;
-        FilesRoot.Visibility = authorized ? Visibility.Visible : Visibility.Collapsed;
-        AuthRequiredPanel.Visibility = authorized ? Visibility.Collapsed : Visibility.Visible;
+        if (authorized)
+        {
+            if (FilesRoot is null)
+                FindName(nameof(FilesRoot));
+            FilesRoot!.Visibility = Visibility.Visible;
+            if (AuthRequiredPanel is not null)
+                AuthRequiredPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            if (AuthRequiredPanel is null)
+                FindName(nameof(AuthRequiredPanel));
+            AuthRequiredPanel!.Visibility = Visibility.Visible;
+            if (FilesRoot is not null)
+                FilesRoot.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void ClearItems()
     {
+        _loadedUserId = null;
         _path.Clear();
-        ItemsGrid.Items.Clear();
-        FolderBreadcrumb.ItemsSource = Array.Empty<FolderCrumb>();
-        EmptyText.Visibility = Visibility.Collapsed;
-        NoRootText.Visibility = Visibility.Collapsed;
+        if (FilesRoot is not null)
+        {
+            ItemsGrid.ItemsSource = null;
+            FolderBreadcrumb.ItemsSource = Array.Empty<FolderCrumb>();
+            EmptyText.Visibility = Visibility.Collapsed;
+            NoRootText.Visibility = Visibility.Collapsed;
+        }
         ErrorBar.IsOpen = false;
         BackStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -184,7 +230,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     /// Находит корневую папку пользователя (<c>is_root</c>) и открывает её.
     /// Если корневой папки нет (аккаунты, созданные до её появления) — показывает сообщение.
     /// </summary>
-    private async Task LoadRootAsync()
+    private async Task LoadRootAsync(Task? typesTask = null)
     {
         SetBusy(true);
         ErrorBar.IsOpen = false;
@@ -199,8 +245,9 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
             if (root is null)
             {
+                _loadedUserId = userId;
                 _path.Clear();
-                ItemsGrid.Items.Clear();
+                ItemsGrid.ItemsSource = null;
                 FolderBreadcrumb.ItemsSource = Array.Empty<FolderCrumb>();
                 AddButton.IsEnabled = false;
                 NoRootText.Visibility = Visibility.Visible;
@@ -208,9 +255,10 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             }
 
             AddButton.IsEnabled = true;
+            _loadedUserId = userId;
             _path.Clear();
             _path.Add(new FolderCrumb(root.Name, root.Id));
-            await LoadFolderContentAsync(root.Id);
+            await LoadFolderContentAsync(root.Id, typesTask);
         }
         catch (ApiException ex)
         {
@@ -226,14 +274,14 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
     }
 
-    private async Task OpenFolderAsync(Guid folderId)
+    private async Task OpenFolderAsync(Guid folderId, Task? typesTask = null)
     {
         SetBusy(true);
         ErrorBar.IsOpen = false;
 
         try
         {
-            await LoadFolderContentAsync(folderId);
+            await LoadFolderContentAsync(folderId, typesTask);
         }
         catch (ApiException ex)
         {
@@ -249,22 +297,34 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         }
     }
 
-    private async Task LoadFolderContentAsync(Guid folderId)
+    private async Task LoadFolderContentAsync(Guid folderId, Task? typesTask = null)
     {
-        var folder = await AppServices.Api.GetFolderAsync(folderId);
+        var folderTask = AppServices.Api.GetFolderAsync(folderId);
+        await (typesTask ?? LoadTypesAsync());
+        var folder = await folderTask;
+        ApplyFolderContent(folder);
+    }
 
-        ItemsGrid.Items.Clear();
-        foreach (var child in folder.Children ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromFolder(child));
-        foreach (var file in folder.Files ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromFile(file, IsTextFile(file), IsSpreadsheetFile(file)));
-        foreach (var video in folder.Videos ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromVideo(video));
-        foreach (var audio in folder.Audios ?? [])
-            ItemsGrid.Items.Add(ExplorerItem.FromAudio(audio));
+    private void ApplyFolderContent(FolderDto folder)
+    {
+        var children = folder.Children ?? [];
+        var files = folder.Files ?? [];
+        var videos = folder.Videos ?? [];
+        var audios = folder.Audios ?? [];
 
+        var items = new List<ExplorerItem>(children.Count + files.Count + videos.Count + audios.Count);
+        foreach (var child in children)
+            items.Add(ExplorerItem.FromFolder(child));
+        foreach (var file in files)
+            items.Add(ExplorerItem.FromFile(file, IsTextFile(file), IsSpreadsheetFile(file)));
+        foreach (var video in videos)
+            items.Add(ExplorerItem.FromVideo(video));
+        foreach (var audio in audios)
+            items.Add(ExplorerItem.FromAudio(audio));
+
+        ItemsGrid.ItemsSource = items;
         FolderBreadcrumb.ItemsSource = _path.ToList();
-        EmptyText.Visibility = ItemsGrid.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         NoRootText.Visibility = Visibility.Collapsed;
         BackStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -279,7 +339,10 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
     }
 
     private async Task LoadTypesAsync()
-        => _types = await LoadCachedTypesAsync(_types, () => AppServices.Api.GetFileTypesAsync());
+    {
+        if (_types.Count == 0)
+            _types = await AppServices.GetFileTypesCachedAsync();
+    }
 
     private static bool IsSpreadsheetFile(FileShortDto dto)
     {
@@ -717,31 +780,16 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
 
     private async Task<IReadOnlyList<string>> LoadVideoTypesAsync()
     {
-        _videoTypes = await LoadCachedTypesAsync(_videoTypes, () => AppServices.Api.GetVideoTypesAsync());
+        if (_videoTypes.Count == 0)
+            _videoTypes = await AppServices.GetVideoTypesCachedAsync();
         return _videoTypes.Select(type => type.Value).ToList();
     }
 
     private async Task<IReadOnlyList<string>> LoadAudioTypesAsync()
     {
-        _audioTypes = await LoadCachedTypesAsync(_audioTypes, () => AppServices.Api.GetAudioTypesAsync());
+        if (_audioTypes.Count == 0)
+            _audioTypes = await AppServices.GetAudioTypesCachedAsync();
         return _audioTypes.Select(type => type.Value).ToList();
-    }
-
-    private static async Task<IReadOnlyList<T>> LoadCachedTypesAsync<T>(
-        IReadOnlyList<T> cached,
-        Func<Task<T[]>> fetch)
-    {
-        if (cached.Count > 0)
-            return cached;
-
-        try
-        {
-            return await fetch() ?? [];
-        }
-        catch (Exception)
-        {
-            return [];
-        }
     }
 
     private Task UploadIntoFolderAsync(Guid folderId, string name, string path)
@@ -751,10 +799,10 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
                 var uploaded = await AppServices.Api.UploadFileAsync(name, path, progress);
 
                 // Файл создаётся отдельно, поэтому добавляем его в текущую папку;
-                // PATCH принимает полный набор файлов папки.
+                // PATCH принимает полный набор файлов папки и возвращает обновлённую папку.
                 var folder = await AppServices.Api.GetFolderAsync(folderId);
                 var fileIds = (folder.Files ?? []).Select(file => file.Id).Append(uploaded.Id).ToList();
-                await AppServices.Api.UpdateFolderAsync(folderId, fileIds: fileIds);
+                return await AppServices.Api.UpdateFolderAsync(folderId, fileIds: fileIds);
             },
             Loc.Current.FileUploadFailed);
 
@@ -764,6 +812,7 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
             {
                 var video = await AppServices.Api.UploadVideoAsync(name, path, folderId, progress);
                 ShowSuccess(Loc.Current.VideoUploaded(video.Name));
+                return null;
             },
             Loc.Current.VideoUploadFailed);
 
@@ -774,10 +823,11 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
                 var contentType = MediaClassifier.ResolveAudioContentType(path, _audioTypes);
                 var audio = await AppServices.Api.UploadAudioAsync(name, path, folderId, progress, contentType: contentType);
                 ShowSuccess(Loc.Current.AudioUploaded(audio.Name));
+                return null;
             },
             Loc.Current.AudioUploadFailed);
 
-    private async Task RunUploadAsync(Func<IProgress<double>, Task> uploadAction, Func<string, string> formatError)
+    private async Task RunUploadAsync(Func<IProgress<double>, Task<FolderDto?>> uploadAction, Func<string, string> formatError)
     {
         SetUploading(true);
         ErrorBar.IsOpen = false;
@@ -785,8 +835,11 @@ public sealed partial class FilesPage : Page, IFrameBackHandler
         try
         {
             var progress = new Progress<double>(value => UploadProgress.Value = value * 100);
-            await uploadAction(progress);
-            await ReloadCurrentAsync();
+            var updatedFolder = await uploadAction(progress);
+            if (updatedFolder is not null)
+                ApplyFolderContent(updatedFolder);
+            else
+                await ReloadCurrentAsync();
         }
         catch (ApiException ex)
         {

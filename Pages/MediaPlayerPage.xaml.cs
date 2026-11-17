@@ -86,6 +86,7 @@ public sealed partial class MediaPlayerPage : Page, IFrameBackHandler
     {
         if (kind == MediaKind.Audio)
         {
+            FindName(nameof(AudioCard));
             AudioCard.Visibility = Visibility.Visible;
             AudioTrackTitle.Text = name;
             Grid.SetRow(Player, 1);
@@ -102,7 +103,8 @@ public sealed partial class MediaPlayerPage : Page, IFrameBackHandler
         }
         else
         {
-            AudioCard.Visibility = Visibility.Collapsed;
+            if (AudioCard is not null)
+                AudioCard.Visibility = Visibility.Collapsed;
             Grid.SetRow(Player, 0);
             Grid.SetRowSpan(Player, 2);
             Player.Height = double.NaN;

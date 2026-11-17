@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:CloudManagerWinUIApp.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    NavigationCacheMode="Enabled"
     mc:Ignorable="d">
 
     <Grid Padding="24,16,24,24" RowSpacing="16">
@@ -33,6 +34,7 @@
             <GridView
                 x:Name="NewsGrid"
                 Grid.Row="0"
+                ContainerContentChanging="NewsGrid_ContainerContentChanging"
                 IsItemClickEnabled="True"
                 ItemClick="NewsGrid_ItemClick"
                 SelectionMode="None">
@@ -57,8 +59,12 @@
                                     <FontIcon
                                         FontSize="32"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Glyph="&#xE789;" />
-                                    <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
+                                        Glyph="&#xE789;"
+                                        Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" />
+                                    <Image
+                                        x:Phase="1"
+                                        Source="{x:Bind Image, Mode=OneWay}"
+                                        Stretch="Uniform" />
                                 </Grid>
 
                                 <TextBlock

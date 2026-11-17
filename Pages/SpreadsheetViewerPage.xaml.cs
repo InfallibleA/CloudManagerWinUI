@@ -14,7 +14,10 @@ namespace CloudManagerWinUIApp.Pages;
 public sealed record SpreadsheetViewerRequest(Guid FileId, string Name, IReadOnlyList<FolderCrumb> Path);
 
 /// <summary>Строка отображаемого листа таблицы.</summary>
-internal sealed record SpreadsheetRow(int RowNumber, IReadOnlyList<string> Cells);
+internal sealed record SpreadsheetRow(int RowNumber, IReadOnlyList<string> Cells)
+{
+    public string RowNumberText { get; } = RowNumber.ToString();
+}
 
 /// <summary>
 /// Встроенный просмотр таблиц <c>.xlsx</c>, <c>.xlsm</c>, <c>.xlsb</c>, <c>.xltx</c>, <c>.xltm</c> и <c>.xls</c>.
@@ -23,6 +26,7 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
 {
     private const double RowNumberWidth = 56;
     private const int MaxBytes = 25 * 1024 * 1024;
+    private static readonly string[] CachedColumnNames = CreateColumnNameCache(200);
 
     private Guid _fileId;
     private string _fileName = string.Empty;
@@ -35,9 +39,32 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
     private int _activeSheetIndex = -1;
     private double[] _columnWidths = [];
 
+    private Brush? _cardStrokeBrush;
+    private Brush? _secondaryTextBrush;
+    private Brush? _subtleSecondaryBrush;
+    private Brush? _subtleTertiaryBrush;
+
     public SpreadsheetViewerPage()
     {
         InitializeComponent();
+        RefreshThemeBrushes();
+        ActualThemeChanged += (_, _) => RefreshThemeBrushes();
+    }
+
+    private void RefreshThemeBrushes()
+    {
+        _cardStrokeBrush = TryGetBrush("CardStrokeColorDefaultBrush");
+        _secondaryTextBrush = TryGetBrush("TextFillColorSecondaryBrush");
+        _subtleSecondaryBrush = TryGetBrush("SubtleFillColorSecondaryBrush");
+        _subtleTertiaryBrush = TryGetBrush("SubtleFillColorTertiaryBrush");
+    }
+
+    private static string[] CreateColumnNameCache(int count)
+    {
+        var names = new string[count];
+        for (var i = 0; i < count; i++)
+            names[i] = ComputeColumnName(i);
+        return names;
     }
 
     public Strings L { get; } = Loc.Current;
@@ -220,6 +247,19 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
 
     private void BuildHeaderRow(double[] widths)
     {
+        var expectedCols = widths.Length + 1;
+        if (HeaderRowGrid.ColumnDefinitions.Count == expectedCols)
+        {
+            HeaderRowGrid.ColumnDefinitions[0].Width = new GridLength(RowNumberWidth);
+            for (var c = 0; c < widths.Length; c++)
+            {
+                HeaderRowGrid.ColumnDefinitions[c + 1].Width = new GridLength(widths[c]);
+                if (HeaderRowGrid.Children[c + 1] is Border { Child: TextBlock tb })
+                    tb.Text = ColumnIndexToName(c);
+            }
+            return;
+        }
+
         HeaderRowGrid.Children.Clear();
         HeaderRowGrid.ColumnDefinitions.Clear();
 
@@ -245,16 +285,14 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
         if (rowGrid.ColumnDefinitions.Count != expectedCols)
             ConfigureRowGrid(rowGrid, expectedCols);
 
-        rowGrid.Background = row.RowNumber % 2 == 0
-            ? TryGetBrush("SubtleFillColorTertiaryBrush")
-            : null;
+        rowGrid.Background = row.RowNumber % 2 == 0 ? _subtleTertiaryBrush : null;
 
         for (var col = 0; col < expectedCols; col++)
         {
             if (rowGrid.Children[col] is Border { Child: TextBlock tb })
             {
                 tb.Text = col == 0
-                    ? row.RowNumber.ToString()
+                    ? row.RowNumberText
                     : (col - 1 < row.Cells.Count ? row.Cells[col - 1] : string.Empty);
             }
         }
@@ -274,11 +312,8 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
         }
     }
 
-    private static Border CreateCellElement(string text, bool isHeader, bool isRowNumber, int column)
+    private Border CreateCellElement(string text, bool isHeader, bool isRowNumber, int column)
     {
-        var borderBrush = TryGetBrush("CardStrokeColorDefaultBrush");
-        var secondaryText = TryGetBrush("TextFillColorSecondaryBrush");
-
         var tb = new TextBlock
         {
             Text = text,
@@ -296,21 +331,21 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
         }
         else if (isRowNumber)
         {
-            if (secondaryText is not null)
-                tb.Foreground = secondaryText;
+            if (_secondaryTextBrush is not null)
+                tb.Foreground = _secondaryTextBrush;
             tb.HorizontalAlignment = HorizontalAlignment.Right;
         }
 
         var border = new Border
         {
-            BorderBrush = borderBrush,
+            BorderBrush = _cardStrokeBrush,
             BorderThickness = new Thickness(0, 0, 1, 1),
             Padding = new Thickness(8, 6, 8, 6),
             Child = tb,
         };
 
         if (isRowNumber && !isHeader)
-            border.Background = TryGetBrush("SubtleFillColorSecondaryBrush");
+            border.Background = _subtleSecondaryBrush;
 
         Grid.SetColumn(border, column);
         return border;
@@ -322,6 +357,11 @@ public sealed partial class SpreadsheetViewerPage : Page, IFrameBackHandler
             : null;
 
     private static string ColumnIndexToName(int index)
+        => (uint)index < (uint)CachedColumnNames.Length
+            ? CachedColumnNames[index]
+            : ComputeColumnName(index);
+
+    private static string ComputeColumnName(int index)
     {
         var sb = new StringBuilder();
         var n = index;

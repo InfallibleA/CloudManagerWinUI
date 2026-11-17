@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:CloudManagerWinUIApp.Pages"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    NavigationCacheMode="Enabled"
     mc:Ignorable="d">
 
     <Grid Padding="24,16,24,24" RowSpacing="12">
@@ -29,6 +30,7 @@
             <!-- Пользователь не авторизован или не админ -->
             <StackPanel
                 x:Name="ForbiddenPanel"
+                x:Load="False"
                 MaxWidth="680"
                 HorizontalAlignment="Left"
                 Spacing="16"
@@ -52,7 +54,7 @@
             </StackPanel>
 
             <!-- Админ-панель -->
-            <Grid x:Name="AdminRoot" Visibility="Collapsed">
+            <Grid x:Name="AdminRoot" x:Load="False" Visibility="Collapsed">
                 <TabView
                     x:Name="AdminTabs"
                     IsAddTabButtonVisible="False"
@@ -284,6 +286,7 @@
                             <!-- Содержимое выбранного пользователя -->
                             <Grid
                                 x:Name="ExplorerPanel"
+                                x:Load="False"
                                 Padding="0,12,0,0"
                                 RowSpacing="8"
                                 Visibility="Collapsed">
@@ -434,6 +437,7 @@
                         Tag="files">
                         <Grid
                             x:Name="AllFilesPanel"
+                            x:Load="False"
                             Padding="0,12,0,0"
                             RowSpacing="8">
                             <Grid.RowDefinitions>
@@ -646,6 +650,8 @@
                             VerticalScrollBarVisibility="Auto"
                             VerticalScrollMode="Auto">
                             <StackPanel
+                                x:Name="CreateNewsPanel"
+                                x:Load="False"
                                 MaxWidth="720"
                                 HorizontalAlignment="Left"
                                 Spacing="12">

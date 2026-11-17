@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -17,10 +18,15 @@ public sealed class CloudManagerApiClient
     private readonly HttpClient _http;
 
     public CloudManagerApiClient(Uri baseAddress)
+        : this(baseAddress, AppServices.SharedHttpHandler)
+    {
+    }
+
+    internal CloudManagerApiClient(Uri baseAddress, HttpMessageHandler handler)
     {
         // Дефолтные 100 секунд рвут загрузку/скачивание больших файлов,
         // поэтому ограничиваем время через CancellationToken.
-        _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        _http = new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
         BaseAddress = baseAddress;
     }
 
@@ -238,32 +244,52 @@ public sealed class CloudManagerApiClient
             throw CreateApiError(response.StatusCode, error);
         }
 
+        var contentLength = response.Content.Headers.ContentLength;
+        var initialCapacity = contentLength is > 0
+            ? (int)Math.Min(contentLength.Value, maxBytes)
+            : 0;
+
         await using var source = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
-        using var bufferStream = new MemoryStream();
-        var buffer = new byte[16384];
+        using var bufferStream = new MemoryStream(initialCapacity);
+        var buffer = ArrayPool<byte>.Shared.Rent(16384);
         var truncated = false;
 
-        while (bufferStream.Length < maxBytes)
+        try
         {
-            var toRead = (int)Math.Min(buffer.Length, maxBytes - bufferStream.Length + 1);
-            var read = await source.ReadAsync(buffer.AsMemory(0, toRead), cts.Token).ConfigureAwait(false);
-            if (read == 0)
-                break;
-
-            var allowed = (int)Math.Min(read, maxBytes - bufferStream.Length);
-            bufferStream.Write(buffer, 0, allowed);
-
-            if (read > allowed)
+            while (bufferStream.Length < maxBytes)
             {
-                truncated = true;
-                break;
+                var toRead = (int)Math.Min(buffer.Length, maxBytes - bufferStream.Length + 1);
+                var read = await source.ReadAsync(buffer.AsMemory(0, toRead), cts.Token).ConfigureAwait(false);
+                if (read == 0)
+                    break;
+
+                var allowed = (int)Math.Min(read, maxBytes - bufferStream.Length);
+                bufferStream.Write(buffer, 0, allowed);
+
+                if (read > allowed)
+                {
+                    truncated = true;
+                    break;
+                }
             }
+
+            if (!truncated && await source.ReadAsync(buffer.AsMemory(0, 1), cts.Token).ConfigureAwait(false) > 0)
+                truncated = true;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
 
-        if (!truncated && await source.ReadAsync(buffer.AsMemory(0, 1), cts.Token).ConfigureAwait(false) > 0)
-            truncated = true;
+        // Если емкость была известна заранее (Content-Length), избегаем повторного выделения LOH.
+        var resultBytes = bufferStream.TryGetBuffer(out var seg)
+                          && seg.Offset == 0
+                          && seg.Array is not null
+                          && seg.Count == seg.Array.Length
+            ? seg.Array
+            : bufferStream.ToArray();
 
-        return (bufferStream.ToArray(), truncated);
+        return (resultBytes, truncated);
     }
 
     private async Task DownloadStreamToFileAsync(
@@ -280,17 +306,31 @@ public sealed class CloudManagerApiClient
 
         var total = response.Content.Headers.ContentLength ?? -1;
         await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await using var target = File.Create(destinationPath);
+        await using var target = new FileStream(
+            destinationPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 81920,
+            useAsync: true);
 
-        var buffer = new byte[81920];
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        var throttle = new ProgressThrottle(progress, total);
         long transferred = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+
+        try
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-            transferred += read;
-            if (total > 0)
-                progress?.Report(Math.Clamp((double)transferred / total, 0, 1));
+            int read;
+            while ((read = await source.ReadAsync(buffer.AsMemory(0, 81920), ct).ConfigureAwait(false)) > 0)
+            {
+                await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                transferred += read;
+                throttle.Report(transferred);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -474,7 +514,13 @@ public sealed class CloudManagerApiClient
             if (folderId is not null)
                 content.Add(new StringContent(folderId.Value.ToString(), Encoding.UTF8), "folder_id");
 
-            var stream = File.OpenRead(filePath);
+            var stream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 65536,
+                useAsync: true);
             var streamContent = progress is null
                 ? new StreamContent(stream)
                 : new StreamContent(new ProgressStream(stream, stream.Length, progress));
@@ -576,16 +622,19 @@ public sealed class CloudManagerApiClient
         cts.CancelAfter(timeout ?? DefaultJsonTimeout);
 
         using var response = await SendWithRetryAsync(factory, allowRefresh, cts.Token).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
-            throw CreateApiError(response.StatusCode, body);
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            throw CreateApiError(response.StatusCode, errorBody);
+        }
 
-        if (string.IsNullOrWhiteSpace(body))
+        if (response.StatusCode == HttpStatusCode.NoContent || response.Content.Headers.ContentLength == 0)
             return default!;
 
-        return ApiJson.Deserialize<T>(body)
-               ?? throw CreateApiError(response.StatusCode, body);
+        await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
+        return await ApiJson.DeserializeAsync<T>(stream, cts.Token).ConfigureAwait(false)
+               ?? throw CreateApiError(response.StatusCode, string.Empty);
     }
 
     private async Task SendNoContentAsync(Func<HttpRequestMessage> factory, bool allowRefresh, CancellationToken ct)

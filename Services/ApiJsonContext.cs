@@ -54,4 +54,8 @@ internal static class ApiJson
 
     public static T? Deserialize<T>(string json)
         => (T?)JsonSerializer.Deserialize(json, typeof(T), ApiJsonContext.Default);
+
+    public static async ValueTask<T?> DeserializeAsync<T>(Stream utf8Json, CancellationToken ct = default)
+        => (T?)await JsonSerializer.DeserializeAsync(utf8Json, typeof(T), ApiJsonContext.Default, ct)
+            .ConfigureAwait(false);
 }

@@ -43,6 +43,7 @@
 
             <Border
                 x:Name="AudioCard"
+                x:Load="False"
                 Grid.Row="0"
                 MaxWidth="560"
                 Padding="32"

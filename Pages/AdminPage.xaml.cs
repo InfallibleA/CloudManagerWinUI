@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using CloudManagerWinUIApp.Localization;
 using CloudManagerWinUIApp.Services;
@@ -189,10 +190,11 @@ public sealed partial class AdminPage : Page
     private static readonly string[] FallbackImageTypes = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
 
     private readonly List<FolderCrumb> _path = [];
-    private readonly List<AdminUserRow> _users = [];
-    private readonly List<AdminFileRow> _allFiles = [];
+    private readonly ObservableCollection<AdminUserRow> _users = [];
+    private readonly ObservableCollection<AdminFileRow> _allFiles = [];
 
     private IReadOnlyList<FileTypeDto> _imageTypes = [];
+    private Guid? _loadedAdminUserId;
     private AdminUserRow? _openedUser;
     private string? _roleFilter;
     private Guid? _mediaId;
@@ -229,12 +231,48 @@ public sealed partial class AdminPage : Page
     public AdminPage()
     {
         InitializeComponent();
-        InitializeRoleFilter();
-        ResetFileFilters();
     }
 
     /// <summary>Строки текущего языка (страница пересоздаётся при смене языка).</summary>
     public Strings L { get; } = Loc.Current;
+
+    private void EnsureAdminRootLoaded()
+    {
+        if (AdminRoot is not null)
+            return;
+
+        FindName(nameof(AdminRoot));
+        UsersList.ItemsSource = _users;
+        InitializeRoleFilter();
+    }
+
+    private void EnsureForbiddenPanelLoaded()
+    {
+        if (ForbiddenPanel is null)
+            FindName(nameof(ForbiddenPanel));
+    }
+
+    private void EnsureExplorerPanelLoaded()
+    {
+        if (ExplorerPanel is null)
+            FindName(nameof(ExplorerPanel));
+    }
+
+    private void EnsureAllFilesPanelLoaded()
+    {
+        if (AllFilesPanel is not null)
+            return;
+
+        FindName(nameof(AllFilesPanel));
+        FilesList.ItemsSource = _allFiles;
+        ResetFileFilters();
+    }
+
+    private void EnsureCreateNewsPanelLoaded()
+    {
+        if (CreateNewsPanel is null)
+            FindName(nameof(CreateNewsPanel));
+    }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
@@ -244,10 +282,18 @@ public sealed partial class AdminPage : Page
         UpdateAuthState();
 
         // Запросы к API — только для админа: иначе первый же 401 разлогинит пользователя.
-        if (AppServices.Auth.IsAdmin)
+        if (!AppServices.Auth.IsAdmin)
         {
+            if (_loadedAdminUserId is not null)
+                ClearAll();
+            return;
+        }
+
+        var currentAdminId = AppServices.Auth.User?.Id;
+        if (_loadedAdminUserId != currentAdminId || _users.Count == 0)
+        {
+            _loadedAdminUserId = currentAdminId;
             _ = LoadUsersPageAsync(reset: true);
-            _ = LoadImageTypesAsync();
         }
     }
 
@@ -269,7 +315,7 @@ public sealed partial class AdminPage : Page
 
     private void ApplyAuthChange()
     {
-        var wasAdmin = AdminRoot.Visibility == Visibility.Visible;
+        var wasAdmin = AdminRoot?.Visibility == Visibility.Visible;
         UpdateAuthState();
 
         if (!AppServices.Auth.IsAdmin)
@@ -280,11 +326,12 @@ public sealed partial class AdminPage : Page
 
         if (!wasAdmin)
         {
+            _loadedAdminUserId = AppServices.Auth.User?.Id;
             _ = LoadUsersPageAsync(reset: true);
 
             // Если открыта вкладка «Файлы», после входа ей тоже нужны данные:
             // SelectionChanged повторно не сработает.
-            if (AdminTabs.SelectedItem is TabViewItem { Tag: "files" })
+            if (AdminTabs?.SelectedItem is TabViewItem { Tag: "files" })
                 _ = ShowFilesTabAsync();
         }
     }
@@ -293,11 +340,22 @@ public sealed partial class AdminPage : Page
     {
         var isAdmin = AppServices.Auth.IsAdmin;
 
-        AdminRoot.Visibility = isAdmin ? Visibility.Visible : Visibility.Collapsed;
-        ForbiddenPanel.Visibility = isAdmin ? Visibility.Collapsed : Visibility.Visible;
-
-        // Вошедшему пользователю без прав кнопка входа не поможет.
-        SignInButton.Visibility = AppServices.Auth.IsAuthenticated ? Visibility.Collapsed : Visibility.Visible;
+        if (isAdmin)
+        {
+            EnsureAdminRootLoaded();
+            AdminRoot!.Visibility = Visibility.Visible;
+            if (ForbiddenPanel is not null)
+                ForbiddenPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            EnsureForbiddenPanelLoaded();
+            ForbiddenPanel!.Visibility = Visibility.Visible;
+            // Вошедшему пользователю без прав кнопка входа не поможет.
+            SignInButton.Visibility = AppServices.Auth.IsAuthenticated ? Visibility.Collapsed : Visibility.Visible;
+            if (AdminRoot is not null)
+                AdminRoot.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void ClearAll()
@@ -306,18 +364,25 @@ public sealed partial class AdminPage : Page
         _usersRequest++;
         _explorerRequest++;
         _filesRequest++;
+        _loadedAdminUserId = null;
 
         _users.Clear();
         _loadedPages = 0;
         _activeSearch = string.Empty;
         _openedUser = null;
-        UsersList.Items.Clear();
-        UsersCounter.Text = string.Empty;
-        MoreUsersButton.Visibility = Visibility.Collapsed;
-        UsersEmptyText.Visibility = Visibility.Collapsed;
-        UsersListPanel.Visibility = Visibility.Visible;
-        ExplorerPanel.Visibility = Visibility.Collapsed;
-        ResetExplorer();
+
+        if (AdminRoot is not null)
+        {
+            UsersCounter.Text = string.Empty;
+            MoreUsersButton.Visibility = Visibility.Collapsed;
+            UsersEmptyText.Visibility = Visibility.Collapsed;
+            UsersListPanel.Visibility = Visibility.Visible;
+            if (ExplorerPanel is not null)
+            {
+                ExplorerPanel.Visibility = Visibility.Collapsed;
+                ResetExplorer();
+            }
+        }
 
         // Вкладка «Файлы»: при следующем показе данные и справочники фильтров
         // загружаются заново (у нового аккаунта может быть другая роль и другой доступ).
@@ -325,16 +390,22 @@ public sealed partial class AdminPage : Page
         _filesLoadedPages = 0;
         _filesLoaded = false;
         _filesFiltersLoaded = false;
-        FilesList.Items.Clear();
-        FilesCounter.Text = string.Empty;
-        MoreFilesButton.Visibility = Visibility.Collapsed;
-        FilesEmptyText.Visibility = Visibility.Collapsed;
-        FilesScopeTitle.Text = L.AllFiles;
-        ResetFileFilters();
 
-        MediaFilesCombo.ItemsSource = null;
-        MediaFilesCombo.Visibility = Visibility.Collapsed;
-        ResetMediaSelection();
+        if (AllFilesPanel is not null)
+        {
+            FilesCounter.Text = string.Empty;
+            MoreFilesButton.Visibility = Visibility.Collapsed;
+            FilesEmptyText.Visibility = Visibility.Collapsed;
+            FilesScopeTitle.Text = L.AllFiles;
+            ResetFileFilters();
+        }
+
+        if (CreateNewsPanel is not null)
+        {
+            MediaFilesCombo.ItemsSource = null;
+            MediaFilesCombo.Visibility = Visibility.Collapsed;
+            ResetMediaSelection();
+        }
 
         ErrorBar.IsOpen = false;
         SetBusy(false);
@@ -381,7 +452,6 @@ public sealed partial class AdminPage : Page
             _activeRole = _roleFilter;
             _loadedPages = 0;
             _users.Clear();
-            UsersList.Items.Clear();
             UsersEmptyText.Visibility = Visibility.Collapsed;
             MoreUsersButton.Visibility = Visibility.Collapsed;
         }
@@ -402,11 +472,7 @@ public sealed partial class AdminPage : Page
                 return;
 
             foreach (var user in response.Items)
-            {
-                var row = new AdminUserRow(user);
-                _users.Add(row);
-                UsersList.Items.Add(row);
-            }
+                _users.Add(new AdminUserRow(user));
 
             _loadedPages = page;
             UpdateUsersFooter(response.Count);
@@ -561,13 +627,14 @@ public sealed partial class AdminPage : Page
     /// </summary>
     private void ApplyUserUpdate(UserResponse updated)
     {
-        var index = _users.FindIndex(user => user.Id == updated.Id);
-        if (index < 0)
-            return;
-
-        var row = new AdminUserRow(updated);
-        _users[index] = row;
-        UsersList.Items[index] = row;
+        for (var i = 0; i < _users.Count; i++)
+        {
+            if (_users[i].Id == updated.Id)
+            {
+                _users[i] = new AdminUserRow(updated);
+                return;
+            }
+        }
     }
 
     // --- Вкладка «Пользователи»: содержимое чужой папки -------------------
@@ -582,9 +649,10 @@ public sealed partial class AdminPage : Page
         if (!AppServices.Auth.IsAdmin)
             return;
 
+        EnsureExplorerPanelLoaded();
         _openedUser = user;
         UsersListPanel.Visibility = Visibility.Collapsed;
-        ExplorerPanel.Visibility = Visibility.Visible;
+        ExplorerPanel!.Visibility = Visibility.Visible;
         ResetExplorer();
         ExplorerTitle.Text = L.UserContentTitle(user.Login);
         AutomationProperties.SetName(ExplorerList, L.UserContentTitle(user.Login));
@@ -682,21 +750,24 @@ public sealed partial class AdminPage : Page
         if (push is not null)
             _path.Add(push);
 
-        ExplorerList.Items.Clear();
-        foreach (var child in folder.Children ?? [])
-            ExplorerList.Items.Add(AdminExplorerRow.FromFolder(child));
-        foreach (var file in folder.Files ?? [])
-            ExplorerList.Items.Add(AdminExplorerRow.FromFile(file));
+        var children = folder.Children ?? [];
+        var files = folder.Files ?? [];
+        var rows = new List<AdminExplorerRow>(children.Count + files.Count);
+        foreach (var child in children)
+            rows.Add(AdminExplorerRow.FromFolder(child));
+        foreach (var file in files)
+            rows.Add(AdminExplorerRow.FromFile(file));
 
+        ExplorerList.ItemsSource = rows;
         ExplorerBreadcrumb.ItemsSource = _path.ToList();
-        ExplorerEmptyText.Visibility = ExplorerList.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExplorerEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ExplorerNoRootText.Visibility = Visibility.Collapsed;
     }
 
     private void ResetExplorer()
     {
         _path.Clear();
-        ExplorerList.Items.Clear();
+        ExplorerList.ItemsSource = null;
         ExplorerBreadcrumb.ItemsSource = Array.Empty<FolderCrumb>();
         ExplorerEmptyText.Visibility = Visibility.Collapsed;
         ExplorerNoRootText.Visibility = Visibility.Collapsed;
@@ -747,10 +818,13 @@ public sealed partial class AdminPage : Page
     private async void AdminTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // Событие приходит и во время создания XAML, до готовности панелей.
-        if (AdminTabs?.SelectedItem is not TabViewItem { Tag: "files" })
+        if (AdminTabs?.SelectedItem is not TabViewItem tab)
             return;
 
-        await ShowFilesTabAsync();
+        if (Equals(tab.Tag, "files"))
+            await ShowFilesTabAsync();
+        else if (Equals(tab.Tag, "news"))
+            EnsureCreateNewsPanelLoaded();
     }
 
     private async Task ShowFilesTabAsync()
@@ -758,6 +832,7 @@ public sealed partial class AdminPage : Page
         if (!AppServices.Auth.IsAdmin)
             return;
 
+        EnsureAllFilesPanelLoaded();
         await LoadFilesFiltersAsync();
 
         if (_filesLoaded || !AppServices.Auth.IsAdmin)
@@ -781,27 +856,11 @@ public sealed partial class AdminPage : Page
 
         _filesFiltersLoaded = true;
 
-        var types = Array.Empty<FileTypeDto>();
-        var typesLoaded = false;
-        try
-        {
-            // Пустое тело ответа даёт null через SendJsonAsync: справочник тогда
-            // остаётся пустым, а не роняет вызывающий async void-обработчик.
-            var loadedTypes = await AppServices.Api.GetFileTypesAsync();
-            if (loadedTypes is not null)
-            {
-                types = loadedTypes;
-                typesLoaded = true;
-            }
-        }
-        catch (ApiException)
-        {
-            // Без справочника остаётся вариант «Все типы».
-        }
-        catch (Exception)
-        {
-            // Сеть или таймаут: так же оставляем «Все типы».
-        }
+        IReadOnlyList<FileTypeDto> types = [];
+        var loadedTypes = await AppServices.GetFileTypesCachedAsync();
+        var typesLoaded = loadedTypes.Count > 0;
+        if (typesLoaded)
+            types = loadedTypes;
 
         if (!AppServices.Auth.IsAdmin)
             return;
@@ -1049,7 +1108,6 @@ public sealed partial class AdminPage : Page
             _activeFileName = FilesNameBox.Text.Trim();
             _filesLoadedPages = 0;
             _allFiles.Clear();
-            FilesList.Items.Clear();
             FilesEmptyText.Visibility = Visibility.Collapsed;
             MoreFilesButton.Visibility = Visibility.Collapsed;
             UpdateFilesScopeTitle();
@@ -1072,11 +1130,7 @@ public sealed partial class AdminPage : Page
                 return;
 
             foreach (var file in response.Items)
-            {
-                var row = new AdminFileRow(file);
-                _allFiles.Add(row);
-                FilesList.Items.Add(row);
-            }
+                _allFiles.Add(new AdminFileRow(file));
 
             _filesLoadedPages = page;
             UpdateFilesFooter(response.Count);
@@ -1123,18 +1177,8 @@ public sealed partial class AdminPage : Page
         if (_imageTypes.Count > 0)
             return;
 
-        try
-        {
-            var types = await AppServices.Api.GetFileTypesAsync();
-            _imageTypes = types is null
-                ? []
-                : types.Where(type => type.IsImage).ToList();
-        }
-        catch (Exception)
-        {
-            // Справочник типов не критичен: ниже есть фильтры по умолчанию.
-            _imageTypes = [];
-        }
+        var types = await AppServices.GetFileTypesCachedAsync();
+        _imageTypes = types.Where(type => type.IsImage).ToList();
     }
 
     /// <summary>Расширения для <see cref="FileOpenPicker"/>; без справочника — типовые.</summary>
@@ -1307,7 +1351,7 @@ public sealed partial class AdminPage : Page
 
     private async Task ShowMediaPreviewAsync(Guid mediaId)
     {
-        var image = await ImageLoader.GetAsync(mediaId);
+        var image = await ImageLoader.GetAsync(mediaId, decodePixelWidth: 480);
         if (image is null || _mediaId != mediaId)
             return;
 

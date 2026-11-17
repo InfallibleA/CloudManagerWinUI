@@ -37,17 +37,17 @@ public sealed partial class MainWindow : Window
 
         ApplyLocalization(reloadPage: false);
         NavFrame.Navigate(typeof(NewsPage));
-        UpdateAuthUi();
 
         // Пункт «Настройки» создаётся шаблоном NavigationView, поэтому его текст
-        // локализуем ещё раз после загрузки панели.
+        // локализуем после загрузки панели.
         NavView.Loaded += OnNavViewLoaded;
     }
 
     private void OnNavViewLoaded(object sender, RoutedEventArgs e)
     {
         NavView.Loaded -= OnNavViewLoaded;
-        ApplyLocalization(reloadPage: false);
+        if (NavView.SettingsItem is NavigationViewItem settingsItem)
+            settingsItem.Content = Loc.Current.SettingsTab;
     }
 
     /// <summary>Применяет строки текущего языка к заголовку окна и меню.</summary>
@@ -83,7 +83,16 @@ public sealed partial class MainWindow : Window
         UpdateAuthUi();
 
         if (reloadPage && NavFrame.Content is Page currentPage)
-            NavFrame.Navigate(currentPage.GetType());
+        {
+            var currentType = currentPage.GetType();
+            var previousCacheSize = NavFrame.CacheSize;
+            NavFrame.CacheSize = 0;
+            NavFrame.CacheSize = previousCacheSize;
+            NavFrame.Navigate(currentType);
+
+            if (NavFrame.BackStack.Count > 0 && NavFrame.BackStack[^1].SourcePageType == currentType)
+                NavFrame.BackStack.RemoveAt(NavFrame.BackStack.Count - 1);
+        }
     }
 
     /// <summary>Восстанавливает сохранённую сессию и обновляет интерфейс.</summary>
@@ -251,29 +260,27 @@ public sealed partial class MainWindow : Window
         if (_syncingSelection)
             return;
 
+        Type? targetPage = null;
         if (args.IsSettingsSelected)
         {
-            NavFrame.Navigate(typeof(SettingsPage));
+            targetPage = typeof(SettingsPage);
         }
         else if (args.SelectedItem is NavigationViewItem item)
         {
-            switch (item.Tag)
+            targetPage = item.Tag switch
             {
-                case "news":
-                    NavFrame.Navigate(typeof(NewsPage));
-                    break;
-                case "files":
-                    NavFrame.Navigate(typeof(FilesPage));
-                    break;
-                case "admin":
-                    NavFrame.Navigate(typeof(AdminPage));
-                    break;
-                case "about":
-                    NavFrame.Navigate(typeof(AboutPage));
-                    break;
-                default:
-                    throw new InvalidOperationException($"Unknown navigation item tag: {item.Tag}");
-            }
+                "news" => typeof(NewsPage),
+                "files" => typeof(FilesPage),
+                "admin" => typeof(AdminPage),
+                "about" => typeof(AboutPage),
+                _ => throw new InvalidOperationException($"Unknown navigation item tag: {item.Tag}"),
+            };
         }
+
+        if (targetPage is null || NavFrame.CurrentSourcePageType == targetPage)
+            return;
+
+        NavFrame.Navigate(targetPage);
+        NavFrame.BackStack.Clear();
     }
 }

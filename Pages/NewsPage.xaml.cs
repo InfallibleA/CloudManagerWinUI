@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CloudManagerWinUIApp.Localization;
 using CloudManagerWinUIApp.Services;
@@ -12,44 +13,75 @@ namespace CloudManagerWinUIApp.Pages;
 public sealed class NewsItem : INotifyPropertyChanged
 {
     private ImageSource? _image;
+    private CancellationTokenSource? _imageLoadCts;
 
     public NewsItem(NewsDto dto)
     {
         Id = dto.Id;
+        MediaId = dto.MediaId;
         Name = string.IsNullOrWhiteSpace(dto.Name) ? Loc.Current.Untitled : dto.Name;
         Description = string.IsNullOrWhiteSpace(dto.Description) ? Loc.Current.NoDescription : dto.Description!;
-
-        if (dto.MediaId is not null)
-            _ = LoadImageAsync(dto.MediaId.Value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public Guid Id { get; }
 
+    public Guid? MediaId { get; }
+
     public string Name { get; }
 
     public string Description { get; }
 
-    /// <summary>Картинка подгружается асинхронно; до этого показывается заглушка.</summary>
+    /// <summary>Картинка подгружается лениво при появлении в viewport; до этого показывается заглушка.</summary>
     public ImageSource? Image
     {
         get => _image;
         private set
         {
+            if (ReferenceEquals(_image, value))
+                return;
+
             _image = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Image)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(PlaceholderVisibility)));
         }
     }
+
+    public Visibility PlaceholderVisibility => _image is null ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Имя для средств доступности (экранный диктор).</summary>
     public string AutomationName => Loc.Current.OpenNews(Name);
 
-    private async Task LoadImageAsync(Guid fileId)
+    public async Task EnsureImageLoadedAsync()
     {
-        var image = await ImageLoader.GetAsync(fileId);
-        if (image is not null)
-            Image = image;
+        if (_image is not null || MediaId is not Guid fileId || _imageLoadCts is not null)
+            return;
+
+        var cts = new CancellationTokenSource();
+        _imageLoadCts = cts;
+        try
+        {
+            var image = await ImageLoader.GetAsync(fileId, decodePixelWidth: 480, cts.Token);
+            if (!cts.IsCancellationRequested && image is not null)
+                Image = image;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_imageLoadCts, cts))
+                _imageLoadCts = null;
+            cts.Dispose();
+        }
+    }
+
+    public void CancelPendingImageLoad()
+    {
+        var cts = _imageLoadCts;
+        _imageLoadCts = null;
+        cts?.Cancel();
     }
 }
 
@@ -58,6 +90,7 @@ public sealed partial class NewsPage : Page
 {
     private const int PageSize = 25;
 
+    private readonly ObservableCollection<NewsItem> _items = [];
     private int _loadedPages;
 
     /// <summary>Строки текущего языка (страница пересоздаётся при смене языка).</summary>
@@ -66,20 +99,31 @@ public sealed partial class NewsPage : Page
     public NewsPage()
     {
         InitializeComponent();
+        NewsGrid.ItemsSource = _items;
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
 
-        if (NewsGrid.Items.Count == 0)
+        if (_items.Count == 0)
             await ReloadAsync();
+    }
+
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        base.OnNavigatedFrom(e);
+
+        foreach (var item in _items)
+            item.CancelPendingImageLoad();
     }
 
     private async Task ReloadAsync()
     {
         _loadedPages = 0;
-        NewsGrid.Items.Clear();
+        foreach (var item in _items)
+            item.CancelPendingImageLoad();
+        _items.Clear();
         await LoadNextPageAsync();
     }
 
@@ -94,11 +138,11 @@ public sealed partial class NewsPage : Page
             var response = await AppServices.Api.GetNewsAsync(page: page, pageSize: PageSize);
 
             foreach (var dto in response.Items)
-                NewsGrid.Items.Add(new NewsItem(dto));
+                _items.Add(new NewsItem(dto));
 
             _loadedPages = page;
-            MoreButton.Visibility = NewsGrid.Items.Count < response.Count ? Visibility.Visible : Visibility.Collapsed;
-            EmptyText.Visibility = NewsGrid.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            MoreButton.Visibility = _items.Count < response.Count ? Visibility.Visible : Visibility.Collapsed;
+            EmptyText.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (ApiException ex)
         {
@@ -114,6 +158,27 @@ public sealed partial class NewsPage : Page
         }
     }
 
+    private void NewsGrid_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is not NewsItem item)
+            return;
+
+        if (args.InRecycleQueue)
+        {
+            item.CancelPendingImageLoad();
+            return;
+        }
+
+        if (args.Phase == 0 && item.MediaId is not null && item.Image is null)
+            args.RegisterUpdateCallback(OnNewsImagePhase);
+    }
+
+    private void OnNewsImagePhase(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (!args.InRecycleQueue && args.Item is NewsItem item)
+            _ = item.EnsureImageLoadedAsync();
+    }
+
     private void SetBusy(bool busy)
     {
         BusyRing.IsActive = busy;
@@ -125,7 +190,7 @@ public sealed partial class NewsPage : Page
         ErrorBar.Message = message;
         ErrorBar.IsOpen = true;
 
-        if (NewsGrid.Items.Count == 0)
+        if (_items.Count == 0)
             EmptyText.Visibility = Visibility.Visible;
     }
 

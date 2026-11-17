@@ -62,7 +62,7 @@ public sealed partial class NewsDetailPage : Page, IFrameBackHandler
                 : news.Description;
 
             if (news.MediaId is not null && NewsImage.Source is null)
-                NewsImage.Source = await ImageLoader.GetAsync(news.MediaId.Value);
+                NewsImage.Source = await ImageLoader.GetAsync(news.MediaId.Value, decodePixelWidth: 760);
         }
         catch (ApiException ex)
         {

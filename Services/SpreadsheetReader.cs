@@ -512,43 +512,44 @@ public static class SpreadsheetReader
             if (rec.Opcode == 0x000A) // EOF workbook globals
                 break;
 
-            if (rec.Opcode == 0x0085 && rec.Data.Length >= 8) // BOUNDSHEET
+            if (rec.Opcode == 0x0085 && rec.DataLength >= 8) // BOUNDSHEET
             {
-                var sheetOffset = (int)BitConverter.ToUInt32(rec.Data, 0);
-                var sheetType = rec.Data[5];
+                var recData = stream.AsSpan(rec.DataOffset, rec.DataLength);
+                var sheetOffset = (int)BitConverter.ToUInt32(recData);
+                var sheetType = recData[5];
                 if (sheetType == 0x00) // Worksheet
                 {
-                    var name = ReadBiff8ShortString(rec.Data, 6);
+                    var name = ReadBiff8ShortString(recData, 6);
                     sheetDefs.Add((string.IsNullOrEmpty(name) ? $"Sheet{sheetDefs.Count + 1}" : name, sheetOffset));
                 }
             }
             else if (rec.Opcode == 0x00FC) // SST
             {
-                var sstChunks = new List<byte[]> { rec.Data };
+                var sstChunks = new List<ArraySegment<byte>> { new(stream, rec.DataOffset, rec.DataLength) };
                 while (i + 1 < records.Count && records[i + 1].Opcode == 0x003C)
                 {
                     i++;
-                    sstChunks.Add(records[i].Data);
+                    sstChunks.Add(new(stream, records[i].DataOffset, records[i].DataLength));
                 }
                 sharedStrings = ParseBiff8Sst(sstChunks);
             }
         }
 
         if (sheetDefs.Count == 0)
-            return new WorkbookData([ParseBiffSheet("Sheet1", records, 0, sharedStrings)]);
+            return new WorkbookData([ParseBiffSheet("Sheet1", stream, records, 0, sharedStrings)]);
 
         var sheets = new List<WorksheetData>(sheetDefs.Count);
         foreach (var (name, offset) in sheetDefs)
         {
             var startIndex = records.FindIndex(r => r.Offset >= offset);
             if (startIndex >= 0)
-                sheets.Add(ParseBiffSheet(name, records, startIndex, sharedStrings));
+                sheets.Add(ParseBiffSheet(name, stream, records, startIndex, sharedStrings));
         }
 
         return new WorkbookData(sheets);
     }
 
-    private readonly record struct BiffRecord(int Offset, ushort Opcode, byte[] Data);
+    private readonly record struct BiffRecord(int Offset, ushort Opcode, int DataOffset, int DataLength);
 
     private static List<BiffRecord> ParseBiffRecords(byte[] stream)
     {
@@ -564,9 +565,8 @@ public static class SpreadsheetReader
             if (pos + len > stream.Length)
                 break;
 
-            var payload = stream.AsSpan(pos, len).ToArray();
+            list.Add(new BiffRecord(recOffset, opcode, pos, len));
             pos += len;
-            list.Add(new BiffRecord(recOffset, opcode, payload));
         }
 
         return list;
@@ -574,6 +574,7 @@ public static class SpreadsheetReader
 
     private static WorksheetData ParseBiffSheet(
         string name,
+        byte[] stream,
         IReadOnlyList<BiffRecord> records,
         int startIndex,
         IReadOnlyList<string> sharedStrings)
@@ -600,92 +601,94 @@ public static class SpreadsheetReader
             if (depth > 1)
                 continue;
 
+            var recData = stream.AsSpan(rec.DataOffset, rec.DataLength);
             switch (rec.Opcode)
             {
-                case 0x00FD when rec.Data.Length >= 10: // LABELSST
+                case 0x00FD when recData.Length >= 10: // LABELSST
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var sstIdx = BitConverter.ToUInt32(rec.Data, 6);
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var sstIdx = BitConverter.ToUInt32(recData[6..]);
                     SetBiffCell(builder, row, col, ReadSstSafe(sharedStrings, sstIdx));
                     break;
                 }
-                case 0x0203 when rec.Data.Length >= 14: // NUMBER
+                case 0x0203 when recData.Length >= 14: // NUMBER
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var val = BitConverter.ToDouble(rec.Data, 6);
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var val = BitConverter.ToDouble(recData[6..]);
                     SetBiffCell(builder, row, col, FormatNumber(val));
                     break;
                 }
-                case 0x027E when rec.Data.Length >= 10: // RK
+                case 0x027E when recData.Length >= 10: // RK
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var rk = BitConverter.ToUInt32(rec.Data, 6);
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var rk = BitConverter.ToUInt32(recData[6..]);
                     SetBiffCell(builder, row, col, FormatNumber(DecodeRk(rk)));
                     break;
                 }
-                case 0x00BD when rec.Data.Length >= 6: // MULRK
+                case 0x00BD when recData.Length >= 6: // MULRK
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var firstCol = BitConverter.ToUInt16(rec.Data, 2);
-                    var lastCol = BitConverter.ToUInt16(rec.Data, rec.Data.Length - 2);
-                    var count = Math.Min(lastCol - firstCol + 1, (rec.Data.Length - 6) / 6);
+                    var row = BitConverter.ToUInt16(recData);
+                    var firstCol = BitConverter.ToUInt16(recData[2..]);
+                    var lastCol = BitConverter.ToUInt16(recData[^2..]);
+                    var count = Math.Min(lastCol - firstCol + 1, (recData.Length - 6) / 6);
                     for (var c = 0; c < count; c++)
                     {
-                        var rk = BitConverter.ToUInt32(rec.Data, 4 + c * 6 + 2);
+                        var rk = BitConverter.ToUInt32(recData[(4 + c * 6 + 2)..]);
                         SetBiffCell(builder, row, firstCol + c, FormatNumber(DecodeRk(rk)));
                     }
                     break;
                 }
-                case 0x0204 when rec.Data.Length >= 8: // LABEL (BIFF5/8)
-                case 0x00D6 when rec.Data.Length >= 8: // RSTRING
+                case 0x0204 when recData.Length >= 8: // LABEL (BIFF5/8)
+                case 0x00D6 when recData.Length >= 8: // RSTRING
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var cch = BitConverter.ToUInt16(rec.Data, 6);
-                    var text = rec.Data.Length >= 9 && (rec.Data[8] == 0 || rec.Data[8] == 1) && 9 + cch <= rec.Data.Length
-                        ? ReadBiff8StringBody(rec.Data, 8, cch)
-                        : cp1251.GetString(rec.Data, 8, Math.Min(cch, rec.Data.Length - 8));
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var cch = BitConverter.ToUInt16(recData[6..]);
+                    var text = recData.Length >= 9 && (recData[8] == 0 || recData[8] == 1) && 9 + cch <= recData.Length
+                        ? ReadBiff8StringBody(recData, 8, cch)
+                        : cp1251.GetString(recData.Slice(8, Math.Min(cch, recData.Length - 8)));
                     SetBiffCell(builder, row, col, text);
                     break;
                 }
-                case 0x0205 when rec.Data.Length >= 8: // BOOLERR
+                case 0x0205 when recData.Length >= 8: // BOOLERR
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var value = rec.Data[7] == 0
-                        ? (rec.Data[6] != 0 ? "TRUE" : "FALSE")
-                        : FormatExcelError(rec.Data[6]);
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var value = recData[7] == 0
+                        ? (recData[6] != 0 ? "TRUE" : "FALSE")
+                        : FormatExcelError(recData[6]);
                     SetBiffCell(builder, row, col, value);
                     break;
                 }
-                case 0x0006 when rec.Data.Length >= 20: // FORMULA
+                case 0x0006 when recData.Length >= 20: // FORMULA
                 {
-                    var row = BitConverter.ToUInt16(rec.Data, 0);
-                    var col = BitConverter.ToUInt16(rec.Data, 2);
-                    var marker = BitConverter.ToUInt16(rec.Data, 12);
+                    var row = BitConverter.ToUInt16(recData);
+                    var col = BitConverter.ToUInt16(recData[2..]);
+                    var marker = BitConverter.ToUInt16(recData[12..]);
                     if (marker == 0xFFFF)
                     {
-                        var kind = rec.Data[6];
+                        var kind = recData[6];
                         if (kind == 0 && i + 1 < records.Count && records[i + 1].Opcode == 0x0207) // STRING
                         {
                             i++;
-                            SetBiffCell(builder, row, col, ReadBiff8String16(records[i].Data, 0));
+                            var strData = stream.AsSpan(records[i].DataOffset, records[i].DataLength);
+                            SetBiffCell(builder, row, col, ReadBiff8String16(strData, 0));
                         }
                         else if (kind == 1)
                         {
-                            SetBiffCell(builder, row, col, rec.Data[8] != 0 ? "TRUE" : "FALSE");
+                            SetBiffCell(builder, row, col, recData[8] != 0 ? "TRUE" : "FALSE");
                         }
                         else if (kind == 2)
                         {
-                            SetBiffCell(builder, row, col, FormatExcelError(rec.Data[8]));
+                            SetBiffCell(builder, row, col, FormatExcelError(recData[8]));
                         }
                     }
                     else
                     {
-                        SetBiffCell(builder, row, col, FormatNumber(BitConverter.ToDouble(rec.Data, 6)));
+                        SetBiffCell(builder, row, col, FormatNumber(BitConverter.ToDouble(recData[6..])));
                     }
                     break;
                 }
@@ -706,7 +709,7 @@ public static class SpreadsheetReader
             builder.Set(row, col, value);
     }
 
-    private static string ReadBiff8ShortString(byte[] data, int offset)
+    private static string ReadBiff8ShortString(ReadOnlySpan<byte> data, int offset)
     {
         if (offset + 2 > data.Length)
             return string.Empty;
@@ -715,16 +718,16 @@ public static class SpreadsheetReader
         return ReadBiff8StringBody(data, offset + 1, cch);
     }
 
-    private static string ReadBiff8String16(byte[] data, int offset)
+    private static string ReadBiff8String16(ReadOnlySpan<byte> data, int offset)
     {
         if (offset + 3 > data.Length)
             return string.Empty;
 
-        var cch = BitConverter.ToUInt16(data, offset);
+        var cch = BitConverter.ToUInt16(data[offset..]);
         return ReadBiff8StringBody(data, offset + 2, cch);
     }
 
-    private static string ReadBiff8StringBody(byte[] data, int flagsOffset, int cch)
+    private static string ReadBiff8StringBody(ReadOnlySpan<byte> data, int flagsOffset, int cch)
     {
         if (cch <= 0 || flagsOffset >= data.Length)
             return string.Empty;
@@ -735,14 +738,14 @@ public static class SpreadsheetReader
         {
             var bytes = Math.Min(cch * 2, data.Length - textOffset);
             bytes -= bytes % 2;
-            return bytes > 0 ? Encoding.Unicode.GetString(data, textOffset, bytes) : string.Empty;
+            return bytes > 0 ? Encoding.Unicode.GetString(data.Slice(textOffset, bytes)) : string.Empty;
         }
 
         var len = Math.Min(cch, data.Length - textOffset);
-        return len > 0 ? Encoding.Latin1.GetString(data, textOffset, len) : string.Empty;
+        return len > 0 ? Encoding.Latin1.GetString(data.Slice(textOffset, len)) : string.Empty;
     }
 
-    private static List<string> ParseBiff8Sst(IReadOnlyList<byte[]> chunks)
+    private static List<string> ParseBiff8Sst(IReadOnlyList<ArraySegment<byte>> chunks)
     {
         var reader = new Biff8SstReader(chunks);
         if (!reader.TryReadUInt32(out _) || !reader.TryReadUInt32(out var uniqueCount))
@@ -758,7 +761,7 @@ public static class SpreadsheetReader
         return strings;
     }
 
-    private sealed class Biff8SstReader(IReadOnlyList<byte[]> chunks)
+    private sealed class Biff8SstReader(IReadOnlyList<ArraySegment<byte>> chunks)
     {
         private int _chunkIndex;
         private int _offset;
@@ -812,21 +815,22 @@ public static class SpreadsheetReader
                     break;
 
                 var chunk = chunks[_chunkIndex];
-                var availBytes = chunk.Length - _offset;
+                var availBytes = chunk.Count - _offset;
                 var bytesPerChar = isUnicode ? 2 : 1;
                 var takeChars = Math.Min(remainingChars, availBytes / bytesPerChar);
 
                 if (takeChars > 0)
                 {
                     var byteLen = takeChars * bytesPerChar;
+                    var slice = chunk.AsSpan(_offset, byteLen);
                     sb.Append(isUnicode
-                        ? Encoding.Unicode.GetString(chunk, _offset, byteLen)
-                        : Encoding.Latin1.GetString(chunk, _offset, byteLen));
+                        ? Encoding.Unicode.GetString(slice)
+                        : Encoding.Latin1.GetString(slice));
                     _offset += byteLen;
                     remainingChars -= takeChars;
                 }
 
-                if (remainingChars > 0 && _offset >= chunk.Length)
+                if (remainingChars > 0 && _offset >= chunk.Count)
                 {
                     _chunkIndex++;
                     _offset = 0;
@@ -834,7 +838,7 @@ public static class SpreadsheetReader
                         break;
 
                     // При переносе строки через CONTINUE первый байт — флаг кодировки остатка.
-                    if (chunks[_chunkIndex].Length > 0)
+                    if (chunks[_chunkIndex].Count > 0)
                     {
                         isUnicode = (chunks[_chunkIndex][0] & 0x01) != 0;
                         _offset = 1;
@@ -860,7 +864,7 @@ public static class SpreadsheetReader
                     return false;
 
                 var chunk = chunks[_chunkIndex];
-                var copy = Math.Min(dest.Length - written, chunk.Length - _offset);
+                var copy = Math.Min(dest.Length - written, chunk.Count - _offset);
                 chunk.AsSpan(_offset, copy).CopyTo(dest[written..]);
                 _offset += copy;
                 written += copy;
@@ -873,7 +877,7 @@ public static class SpreadsheetReader
             var left = count;
             while (left > 0 && EnsureChunkAvailable())
             {
-                var step = Math.Min(left, chunks[_chunkIndex].Length - _offset);
+                var step = Math.Min(left, chunks[_chunkIndex].Count - _offset);
                 _offset += step;
                 left -= step;
             }
@@ -881,7 +885,7 @@ public static class SpreadsheetReader
 
         private bool EnsureChunkAvailable()
         {
-            while (_chunkIndex < chunks.Count && _offset >= chunks[_chunkIndex].Length)
+            while (_chunkIndex < chunks.Count && _offset >= chunks[_chunkIndex].Count)
             {
                 _chunkIndex++;
                 _offset = 0;
@@ -1011,19 +1015,29 @@ public static class SpreadsheetReader
 
     private sealed class SheetBuilder(string name)
     {
-        private readonly Dictionary<int, Dictionary<int, string>> _rows = [];
+        private readonly List<string[]?> _rows = [];
         private int _maxRow = -1;
         private int _maxCol = -1;
         private bool _truncated;
 
         public void Set(int row, int col, string value)
         {
-            if (!_rows.TryGetValue(row, out var cols))
+            while (_rows.Count <= row)
+                _rows.Add(null);
+
+            var rowArr = _rows[row];
+            if (rowArr is null)
             {
-                cols = [];
-                _rows[row] = cols;
+                rowArr = new string[Math.Max(col + 1, 8)];
+                _rows[row] = rowArr;
             }
-            cols[col] = value;
+            else if (col >= rowArr.Length)
+            {
+                Array.Resize(ref rowArr, Math.Max(col + 1, rowArr.Length * 2));
+                _rows[row] = rowArr;
+            }
+
+            rowArr[col] = value;
             if (row > _maxRow) _maxRow = row;
             if (col > _maxCol) _maxCol = col;
         }
@@ -1040,11 +1054,18 @@ public static class SpreadsheetReader
             for (var r = 0; r <= _maxRow; r++)
             {
                 var rowArray = new string[colCount];
-                Array.Fill(rowArray, string.Empty);
-                if (_rows.TryGetValue(r, out var cols))
+                var src = _rows[r];
+                if (src is null)
                 {
-                    foreach (var (c, val) in cols)
-                        rowArray[c] = val;
+                    Array.Fill(rowArray, string.Empty);
+                }
+                else
+                {
+                    var copyLen = Math.Min(src.Length, colCount);
+                    for (var c = 0; c < copyLen; c++)
+                        rowArray[c] = src[c] ?? string.Empty;
+                    for (var c = copyLen; c < colCount; c++)
+                        rowArray[c] = string.Empty;
                 }
                 rows.Add(rowArray);
             }

@@ -1,15 +1,7 @@
-﻿using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-
+﻿using System.Globalization;
 using CloudManagerWinUIApp.Localization;
 using CloudManagerWinUIApp.Services;
-
-using System.Runtime.InteropServices;
-using System.Globalization;
+using Microsoft.UI.Xaml;
 using Windows.Globalization;
 
 
@@ -17,9 +9,6 @@ namespace CloudManagerWinUIApp;
 
 public partial class App : Application
 {
-    [DllImport("kernel32.dll")]
-    private static extern bool AttachConsole(int dwProcessId);
-    private const int ATTACH_PARENT_PROCESS = -1;
     private Window? _window;
 
     /// <summary>Главное окно приложения (нужно для диалогов и файловых пикеров).</summary>
@@ -40,11 +29,6 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
-
-        // Для отладки — вывести язык системы в консоль
-        Console.WriteLine($"System language: {SystemLanguage}");
-        Console.WriteLine($"Language code:   {SystemLanguageCode}");
-        Console.WriteLine($"Display name:    {SystemLanguageDisplayName}");
     }
 
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
